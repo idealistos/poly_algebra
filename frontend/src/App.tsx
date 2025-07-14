@@ -1,0 +1,497 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import SceneCanvas from './SceneCanvas';
+import { ActionRibbon } from './ActionRibbon';
+import { ActionType, ObjectType, ShapeState } from './enums';
+import type { Action, Shape, PlotPointElement } from './types';
+import './App.css';
+import { createShapeForDBObject } from './utils';
+
+function InvariantModal({
+  mousePos,
+  formula,
+  setFormula,
+  onSubmit,
+  onCancel,
+  visible
+}: {
+  mousePos: { x: number, y: number },
+  formula: string,
+  setFormula: (s: string) => void,
+  onSubmit: () => void,
+  onCancel: () => void,
+  visible: boolean
+}) {
+  if (!visible) return null;
+  return (
+    <div
+      className="modal-overlay"
+      style={{
+        left: mousePos.x + 24,
+        top: mousePos.y - 16,
+      }}
+    >
+      <div className="modal-content">
+        <div className="modal-title">Add Invariant</div>
+        <input
+          type="text"
+          className="modal-input"
+          value={formula}
+          onChange={e => setFormula(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onSubmit(); }}
+          placeholder="Enter the formula of the invariant"
+          autoFocus
+        />
+        <div className="modal-buttons">
+          <button className="modal-button modal-button-cancel" onClick={onCancel}>Cancel</button>
+          <button className="modal-button modal-button-ok" onClick={onSubmit} disabled={!formula.trim()}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function deleteShape(
+  shape: Shape,
+  setShapes: React.Dispatch<React.SetStateAction<Shape[]>>,
+  sceneId: number,
+  setStatusMessage: (message: string | null) => void,
+  setDisplayedPlotNames?: React.Dispatch<React.SetStateAction<Set<string>>>
+) {
+  try {
+    // First, check for dependents
+    const dependentsResponse = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.dbObject.name}/dependents`);
+
+    if (!dependentsResponse.ok) {
+      const text = await dependentsResponse.text();
+      throw new Error(text || dependentsResponse.statusText);
+    }
+
+    const dependents: string[] = await dependentsResponse.json();
+
+    // Filter out the object itself from dependents for the confirmation message
+    const otherDependents = dependents.filter(name => name !== shape.dbObject.name);
+
+    // If there are other dependents, ask for confirmation
+    if (otherDependents.length > 0) {
+      const dependentsList = otherDependents.join(', ');
+      const confirmMessage = `Are you sure you want to delete "${shape.dbObject.name}" and its dependents: ${dependentsList}?`;
+
+      if (!window.confirm(confirmMessage)) {
+        return; // User cancelled
+      }
+    }
+
+    // Proceed with deletion
+    const response = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.dbObject.name}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || response.statusText);
+    }
+
+    // Parse the response as a list of names to delete
+    const deletedNames: string[] = await response.json();
+
+    // Remove all shapes whose names are in the deletedNames list, plus the original shape
+    setShapes(prevShapes =>
+      prevShapes.filter(
+        s => s.dbObject.name !== shape.dbObject.name && !deletedNames.includes(s.dbObject.name)
+      )
+    );
+
+    // Clean up plot-related state for Locus objects
+    if (shape.dbObject.object_type === 'Locus') {
+      // Remove from displayedPlotNames
+      setDisplayedPlotNames?.(prevNames => {
+        const newNames = new Set(prevNames);
+        newNames.delete(shape.dbObject.name);
+        return newNames;
+      });
+    }
+
+    // Also clean up any Locus objects that were deleted as dependencies
+    // Remove all deleted names from displayedPlotNames (they might be Locus objects)
+    if (deletedNames.length > 0) {
+      setDisplayedPlotNames?.(prevNames => {
+        const newNames = new Set(prevNames);
+        deletedNames.forEach(name => newNames.delete(name));
+        return newNames;
+      });
+    }
+  } catch (err) {
+    console.error('Failed to delete shape:', err);
+    setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+  }
+}
+
+interface SceneInfo {
+  id: number;
+  name: string;
+}
+
+function App() {
+  const [scenes, setScenes] = useState<SceneInfo[]>([]);
+  const [selectedSceneId, setSelectedSceneId] = useState<number | null>(null);
+  const [isCreatingScene, setIsCreatingScene] = useState(false);
+  const [newSceneName, setNewSceneName] = useState('');
+  const [currentAction, setCurrentAction] = useState<Action | null>(null);
+  const [currentActionStep, setCurrentActionStep] = useState<number>(0);
+  const [stagedShapeName, setStagedShapeName] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [invariantFormula, setInvariantFormula] = useState('');
+  const [mousePos, setMousePos] = useState<{ x: number, y: number }>({ x: 200, y: 200 });
+  const [shapes, setShapes] = useState<Shape[]>([]);
+  const [displayedPlotNames, setDisplayedPlotNames] = useState<Set<string>>(new Set());
+  const [plotPointsByLocusName, setPlotPointsByLocusName] = useState<Record<string, PlotPointElement[][]>>({});
+
+  const unsetAction = useCallback(() => {
+    setCurrentAction(null);
+    setStagedShapeName(null);
+    setCurrentActionStep(0);
+    setStatusMessage(null);
+    setInvariantFormula('');
+  }, [setCurrentAction, setStagedShapeName, setCurrentActionStep, setStatusMessage, setInvariantFormula]);
+
+  useEffect(() => {
+    fetch('http://localhost:8080/scenes')
+      .then(res => res.json())
+      .then((sceneInfos: SceneInfo[]) => {
+        setScenes(sceneInfos);
+        // Only auto-select if there are scenes and no scene is currently selected
+        if (sceneInfos.length > 0 && selectedSceneId === null) {
+          setSelectedSceneId(sceneInfos[sceneInfos.length - 1].id);
+        }
+      })
+      .catch(() => setScenes([]));
+  }, [selectedSceneId]); // Only run once on mount
+
+  const refreshScenes = async () => {
+    try {
+      const response = await fetch('http://localhost:8080/scenes');
+      const sceneInfos: SceneInfo[] = await response.json();
+      setScenes(sceneInfos);
+    } catch (err) {
+      console.error('Failed to refresh scenes:', err);
+      setScenes([]);
+    }
+  };
+
+  const handleCreateScene = async () => {
+    if (!newSceneName.trim()) return;
+
+    try {
+      const response = await fetch('http://localhost:8080/scenes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newSceneName.trim() }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+
+      const newScene: SceneInfo = await response.json();
+      // Refresh the entire scene list to ensure consistency
+      await refreshScenes();
+      setSelectedSceneId(newScene.id);
+      setIsCreatingScene(false);
+      setNewSceneName('');
+      setStatusMessage(`Created new scene: ${newScene.name}`);
+    } catch (err) {
+      console.error('Failed to create scene:', err);
+      setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+    }
+  };
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (currentAction?.name !== ActionType.Invariant) {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      }
+    };
+    window.addEventListener('mousemove', handler);
+    return () => window.removeEventListener('mousemove', handler);
+  }, [currentAction]);
+
+  useEffect(() => {
+    if (currentAction?.name === ActionType.Invariant) {
+      setInvariantFormula('');
+    }
+  }, [currentAction]);
+
+  // Reset state when scene changes
+  useEffect(() => {
+    if (selectedSceneId !== null) {
+      setStagedShapeName(null);
+      setStatusMessage(null);
+      setDisplayedPlotNames(new Set());
+      setPlotPointsByLocusName({});
+      setShapes([]);
+    }
+  }, [selectedSceneId]);
+
+  const handleActionClick = useCallback((action: Action) => {
+    unsetAction();
+    setCurrentAction(action);
+    setStatusMessage(action.arguments[0]?.hint ?? null);
+  }, [unsetAction, setCurrentAction, setStatusMessage]);
+
+  const selectShape = useCallback((shape: Shape) => {
+    const shapeCopy = shape.clone();
+    shapeCopy.state = ShapeState.Selected;
+    setShapes(prevShapes => prevShapes.map(
+      s => {
+        if (s.dbObject.name === shape.dbObject.name) {
+          return shapeCopy;
+        } else if (s.state === ShapeState.Selected) {
+          s.state = ShapeState.Default;
+          return s.clone();
+        }
+        return s;
+      }));
+  }, [setShapes]);
+
+  const handleDeleteShape = useCallback((shape: Shape) => {
+    if (selectedSceneId !== null) {
+      deleteShape(shape, setShapes, selectedSceneId, setStatusMessage, setDisplayedPlotNames);
+    }
+  }, [selectedSceneId, setShapes, setStatusMessage, setDisplayedPlotNames]);
+
+  // Handle keyboard events for deleting selected shapes
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace') {
+        // Find the currently selected shape
+        const selectedShape = shapes.find(shape =>
+          shape.state === ShapeState.Selected || shape.state === ShapeState.SuggestedSelected
+        );
+
+        if (selectedShape) {
+          e.preventDefault(); // Prevent default backspace behavior
+          handleDeleteShape(selectedShape);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [shapes, handleDeleteShape]);
+
+  // Reusable function to fetch plot points for a locus
+  const fetchPlotPoints = useCallback(async (locusName: string) => {
+    try {
+      const response = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/plot/${locusName}?width=${window.innerWidth}&height=${window.innerHeight}`);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+      const plotPoints: PlotPointElement[][] = await response.json();
+
+      // Store the plot points
+      setPlotPointsByLocusName(prev => ({
+        ...prev,
+        [locusName]: plotPoints
+      }));
+      console.log(`Saved ${plotPoints.length} points for locus ${locusName}`);
+
+      // Add to displayed plot names
+      setDisplayedPlotNames(prev => new Set([...prev, locusName]));
+    } catch (err) {
+      console.error(`Failed to fetch plot points for locus ${locusName}:`, err);
+      setStatusMessage(`Error: Failed to fetch plot points for locus ${locusName}: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+      throw err;
+    }
+  }, [selectedSceneId, setPlotPointsByLocusName, setDisplayedPlotNames, setStatusMessage]);
+
+  const handleTogglePlot = useCallback(async (shapeName: string) => {
+    const isCurrentlyDisplayed = displayedPlotNames.has(shapeName);
+
+    if (isCurrentlyDisplayed) {
+      // Turn off: just remove from displayed names
+      setDisplayedPlotNames(prevNames => {
+        const newNames = new Set(prevNames);
+        newNames.delete(shapeName);
+        return newNames;
+      });
+    } else {
+      // Turn on: check if plot points exist, fetch if needed
+      if (!plotPointsByLocusName[shapeName]) {
+        try {
+          await fetchPlotPoints(shapeName);
+        } catch {
+          return; // Don't add to displayed names if fetch failed
+        }
+      } else {
+        // Plot points already exist, just add to displayed names
+        setDisplayedPlotNames(prevNames => {
+          const newNames = new Set(prevNames);
+          newNames.add(shapeName);
+          return newNames;
+        });
+      }
+    }
+  }, [displayedPlotNames, plotPointsByLocusName, fetchPlotPoints]);
+
+  const handleInvariantSubmit = async () => {
+    if (!selectedSceneId || !stagedShapeName || !invariantFormula.trim()) return;
+    const dbObject = {
+      name: stagedShapeName,
+      object_type: ObjectType.Invariant,
+      properties: { formula: invariantFormula.trim() },
+    };
+    try {
+      const res = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/objects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dbObject),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
+      unsetAction();
+      setShapes(prevShapes => [...prevShapes, createShapeForDBObject(dbObject, shapes, -1)]);
+    } catch (err) {
+      console.error('Failed to POST invariant:', err);
+      setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+    }
+  };
+
+  return (
+    <div className="app-container">
+      <SceneCanvas
+        sceneId={selectedSceneId}
+        currentAction={currentAction}
+        currentActionStep={currentActionStep}
+        setCurrentActionStep={setCurrentActionStep}
+        stagedShapeName={stagedShapeName}
+        setStagedShapeName={setStagedShapeName}
+        unsetAction={unsetAction}
+        shapes={shapes}
+        setShapes={setShapes}
+        displayedPlotNames={displayedPlotNames}
+        setStatusMessage={setStatusMessage}
+        plotPointsByLocusName={plotPointsByLocusName}
+        setPlotPointsByLocusName={setPlotPointsByLocusName}
+        fetchPlotPoints={fetchPlotPoints}
+      />
+      <ActionRibbon onActionClick={handleActionClick} setStatusMessage={setStatusMessage} />
+      <div className="top-bar">
+        <div className="scene-selector">
+          {isCreatingScene ? (
+            <div className="scene-create-input">
+              <input
+                type="text"
+                value={newSceneName}
+                onChange={e => setNewSceneName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    handleCreateScene();
+                  } else if (e.key === 'Escape') {
+                    setIsCreatingScene(false);
+                    setNewSceneName('');
+                  }
+                }}
+                placeholder="Enter scene name..."
+                autoFocus
+              />
+              <button onClick={handleCreateScene} disabled={!newSceneName.trim()}>
+                Create
+              </button>
+              <button onClick={() => {
+                setIsCreatingScene(false);
+                setNewSceneName('');
+              }}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <select
+              className="scene-select"
+              value={selectedSceneId ?? ''}
+              onChange={e => {
+                const value = e.target.value;
+                if (value === 'new') {
+                  setIsCreatingScene(true);
+                } else if (value === '') {
+                  setSelectedSceneId(null);
+                } else {
+                  setSelectedSceneId(Number(value));
+                }
+              }}
+            >
+              {scenes.length === 0 ? (
+                <option value="">Select a scene...</option>
+              ) : (
+                <>
+                  {scenes.map(scene => (
+                    <option key={scene.id} value={scene.id}>
+                      {`${scene.name} (ID: ${scene.id})`}
+                    </option>
+                  ))}
+                </>
+              )}
+              <option value="new">&lt;new...&gt;</option>
+            </select>
+          )}
+        </div>
+        <div className="objects-box">
+          {shapes.map((shape, idx) => (
+            <div
+              key={shape.dbObject.name + idx}
+              className={`object-line${shape.state === 'Selected' || shape.state === 'SuggestedSelected' ? ' object-line-selected' : ''}`}
+              style={{
+                display: 'flex', alignItems: 'center', padding: '6px 8px', border: '1px solid #eee', borderRadius: 6, marginBottom: 6, background: (shape.state === 'Selected' || shape.state === 'SuggestedSelected') ? '#e3f0ff' : '#fff', cursor: 'pointer'
+              }}
+              onClick={() => selectShape(shape)}
+            >
+              <span style={{ marginRight: 10 }}>{shape.getIcon()}</span>
+              <span
+                className="object-description"
+                title={shape.getDescription()}
+              >
+                {shape.getDescription()}
+              </span>
+              {shape.dbObject.object_type === ObjectType.Locus && (
+                <button
+                  className={`plot-toggle-button ${displayedPlotNames.has(shape.dbObject.name) ? 'plot-toggle-on' : 'plot-toggle-off'}`}
+                  title={displayedPlotNames.has(shape.dbObject.name) ? 'Hide plot' : 'Show plot'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTogglePlot(shape.dbObject.name);
+                  }}
+                >
+                  {displayedPlotNames.has(shape.dbObject.name) ? 'on' : 'off'}
+                </button>
+              )}
+              <button
+                className="delete-button"
+                title="Delete"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteShape(shape);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="status-bar">{statusMessage}</div>
+      <InvariantModal
+        mousePos={mousePos}
+        formula={invariantFormula}
+        setFormula={setInvariantFormula}
+        onSubmit={handleInvariantSubmit}
+        onCancel={unsetAction}
+        visible={currentAction?.name === ActionType.Invariant}
+      />
+    </div>
+  );
+}
+
+export default App;

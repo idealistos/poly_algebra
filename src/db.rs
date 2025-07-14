@@ -1,0 +1,11 @@
+pub use scene::ActiveModel as SceneActiveModel;
+pub use scene::Column as SceneColumn;
+pub use scene::Entity as SceneEntity;
+pub use scene::Model as SceneModel;
+pub use scene::SCENE_DEFAULT_NAME;
+pub use scene_object::ActiveModel as SceneObjectActiveModel;
+pub use scene_object::Column as SceneObjectColumn;
+pub use scene_object::Entity as SceneObjectEntity;
+pub use scene_object::Model as SceneObjectModel;
+mod scene;
+mod scene_object;

@@ -1,0 +1,226 @@
+/* App.css is intentionally left empty */
+
+.app-container {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    overflow: hidden;
+}
+
+.top-bar {
+    position: absolute;
+    top: 24px;
+    right: 40px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    height: calc(100vh - 24px - 48px - 32px);
+    /* 24px top, 48px for Plot button, 32px for status bar */
+    gap: 0;
+}
+
+.scene-selector {
+    margin-bottom: 8px;
+}
+
+.scene-select {
+    width: 200px;
+    height: 32px;
+    font-size: 16px;
+}
+
+.scene-select option[value=""] {
+    color: #888;
+    font-style: italic;
+}
+
+.scene-create-input {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.scene-create-input input {
+    flex: 1;
+    height: 32px;
+    font-size: 16px;
+    padding: 0 8px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+}
+
+.scene-create-input button {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 14px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.scene-create-input button:first-of-type {
+    background: #4CAF50;
+    color: white;
+    border-color: #4CAF50;
+}
+
+.scene-create-input button:first-of-type:disabled {
+    background: #ccc;
+    border-color: #ccc;
+    cursor: not-allowed;
+}
+
+.scene-create-input button:last-of-type {
+    background: #f5f5f5;
+}
+
+.objects-box {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 260px;
+    border: 1.5px solid #bbb;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    padding: 12px;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+    overflow-y: auto;
+}
+
+.objects-box-placeholder {
+    color: #888;
+    font-style: italic;
+    text-align: center;
+    margin-top: 100px;
+}
+
+.object-description {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.delete-button {
+    font-size: 13px;
+    margin-left: 8px;
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    outline: none;
+    user-select: none;
+}
+
+.delete-button:focus {
+    outline: none;
+}
+
+.delete-button:active {
+    outline: none;
+}
+
+.plot-toggle-button {
+    font-size: 11px;
+    margin-left: 4px;
+    margin-right: 4px;
+    padding: 2px 6px;
+    border: 1px solid;
+    border-radius: 3px;
+    cursor: pointer;
+    outline: none;
+    user-select: none;
+    align-self: center;
+}
+
+.plot-toggle-button:focus {
+    outline: none;
+}
+
+.plot-toggle-button:active {
+    outline: none;
+}
+
+.plot-toggle-on {
+    background: #d32f2f;
+    color: white;
+    border-color: #d32f2f;
+}
+
+.plot-toggle-off {
+    background: #f5f5f5;
+    color: #666;
+    border-color: #ddd;
+}
+
+.status-bar {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 32px;
+    background: #eee;
+    border-top: 1.5px solid #bbb;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    padding-left: 16px;
+}
+
+.modal-overlay {
+    position: fixed;
+    z-index: 1000;
+    background: transparent;
+    pointer-events: none;
+}
+
+.modal-content {
+    background: #fff;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+    padding: 20px;
+    min-width: 280px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.18);
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.modal-title {
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+.modal-input {
+    width: 260px;
+    padding: 8px;
+    font-size: 16px;
+    color: #222;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+}
+
+.modal-buttons {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.modal-button {
+    padding: 6px 18px;
+    font-size: 15px;
+}
+
+.modal-button-cancel {
+    composes: modal-button;
+}
+
+.modal-button-ok {
+    composes: modal-button;
+}

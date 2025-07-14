@@ -1,0 +1,52 @@
+// line1 = line_ab(Point(0, 0), Point(1, 0))
+// line2 = line_ab(Point(0, 0), Point(0, 1))
+// contains(line1, VarPoint("X"))
+// contains(line2, VarPoint("Y"))
+// equals(distance(VarPoint("X"), VarPoint("Y")), 5)
+// point_equals(TargetPoint("Z"), midpoint(VarPoint("X"), VarPoint("Y"))
+
+// {"name": "L1", "type": "LineAB", "point1": "0,0", "point2": "1,0"}
+// {"name": "L2", "type": "LineAB", "point1": "0,0", "point2": "0,1"}
+// {"name": "X", "value": "3,0", "type": "SlidingPoint", "bound_to": "L1"}
+// {"name": "Y", "value": "0,4", "type": "SlidingPoint", "bound_to": "L2"}
+// {"name": "d", "type": "Constraint", "formula": "d(X, Y)"}
+// {"name": "Z", "type": "Midpoint", "point1": "X", "point2": "Y", "target": true}
+
+// {"name": "A", "value": "-1,0", "type": "FixedPoint"}
+// {"name": "B", "value": "1,0", "type": "FixedPoint"}
+// {"name": "X", "value": "0,2", "type": "FreePoint"}
+// {"name": "d", "type": "Constraint", "formula": "d(A, X) + d(B, X)"}
+// equals(distance(Point(-1, 0), TargetPoint("X")) + distance(Point(1, 0), TargetPoint("X")), sqrt(10))
+
+
+Example 1: circle
+
+FixedPoint A {"value": "0,0"}
+FreePoint X {"value": "3,4"}
+Invariant invA {"formula": "d(A, X)"}
+
+A = FixedPoint(0, 0)
+X = FreePoint(3, 4)
+is_constant(d(A, X))
+
+A: type=Point value=0,0 free=False
+X: type=Point value=3,4 free=True vars=a,b
+d(A, X): type=Real value=c [c^2 = 25] vars=d [d^2 = (a - 0)^2 + (b - 0)^2]
+is_constant(d): [d = c]
+
+Example 2: midpoint of a sliding bar
+
+LineAB lineA {"point1": "0,0", "point2": "1,0"}
+LineAB lineB {"point1": "0,0", "point2": "0,1"}
+SlidingPoint X {"value": "4,0", "bound_to": "lineA"}
+SlidingPoint Y {"value": "0,3", "bound_to": "lineB"}
+Invariant invA {"formula": "d(X, Y)"}
+MidPoint Z {"point1": "X", "point2": "Y"}
+
+
+Example 3: Lemniscate
+
+FixedPoint A {"value": "-5,0"}
+FixedPoint B {"value": "5,0"}
+FreePoint X {"value": "0,0"}
+Invariant invA {"formula": "d(A, X) * d(B, X)"}

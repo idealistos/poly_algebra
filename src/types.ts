@@ -1,0 +1,1 @@
+// No changes needed for the Shape interface, just ensure it is exported and ready for class extension. 
