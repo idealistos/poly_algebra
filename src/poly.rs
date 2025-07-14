@@ -7,6 +7,17 @@ use std::{fmt, mem, rc::Rc};
 
 use crate::modular_poly::ModularPoly;
 
+/// Result of searching for the variable with minimum degree across polynomials
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VarSearchResult {
+    /// The variable index with minimum degree
+    pub var: u8,
+    /// The minimum degree of this variable across all polynomials
+    pub min_degree: u32,
+    /// The index of the polynomial that contains this variable with the minimum degree
+    pub poly_index: usize,
+}
+
 mod poly_conversion;
 mod poly_operations;
 
@@ -32,102 +43,6 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
-
-#[derive(Debug, Clone)]
-struct EliminationStep {
-    pub v: u8,
-    pub poly1: Rc<Poly>,
-    pub poly2: Rc<Poly>,
-    pub p_factor_1a: Rc<Poly>,
-    pub p_factor_2a: Rc<Poly>,
-    pub p_factor_1b: Rc<Poly>,
-    pub p_factor_2b: Rc<Poly>,
-    pub poly_a: Rc<Poly>, // poly1 * p_factor_1a + poly2 * p_factor_2a
-    pub poly_b: Rc<Poly>, // poly1 * p_factor_1b + poly2 * p_factor_2b
-    pub degree_a: u32,
-    pub degree_b: u32,
-}
-
-impl EliminationStep {
-    pub fn new(v: u8, poly1: Rc<Poly>, poly2: Rc<Poly>) -> Self {
-        let degree1 = poly1.get_degree(v);
-        let degree2 = poly2.get_degree(v);
-        let (x_poly_1, x_poly_2, x_degree_1, x_degree_2) = if degree1 >= degree2 {
-            (poly1, poly2, degree1, degree2)
-        } else {
-            (poly2, poly1, degree2, degree1)
-        };
-        Self {
-            v,
-            poly1: x_poly_1.clone(),
-            poly2: x_poly_2.clone(),
-            p_factor_1a: Rc::new(Poly::Constant(1)),
-            p_factor_2a: Rc::new(Poly::Constant(0)),
-            p_factor_1b: Rc::new(Poly::Constant(0)),
-            p_factor_2b: Rc::new(Poly::Constant(1)),
-            poly_a: x_poly_1.clone(),
-            poly_b: x_poly_2.clone(),
-            degree_a: x_degree_1,
-            degree_b: x_degree_2,
-        }
-    }
-
-    pub fn get_next_step(&self) -> Option<Self> {
-        if self.degree_b == 0 {
-            return None;
-        }
-
-        // Extract factors and remainders
-        println!("poly_a: {} {:?}", self.poly_a, self.poly_a);
-        let (pa1, pa2) = self
-            .poly_a
-            .extract_factor_and_remainder(self.v, self.degree_b);
-        let (pb1, pb2) = self
-            .poly_b
-            .extract_factor_and_remainder(self.v, self.degree_b);
-
-        // Compute new poly_b = pb1 * pa2 - pb2 * pa1
-
-        println!("pa1: {} {:?}", pa1, pa1);
-        println!("pa2: {} {:?}", pa2, pa2);
-        println!("pb1: {} {:?}", pb1, pb1);
-        let mut new_poly_b = pa2.multiply(&pb1);
-        println!("pa2 * pb1: {} {:?}", new_poly_b, new_poly_b);
-        let temp = pa1.multiply(&pb2);
-        // println!(
-        //     "new_poly_b before subtracting temp: {} {:?}",
-        //     new_poly_b, new_poly_b
-        // );
-        // println!("temp: {} {:?}", temp, temp);
-        new_poly_b.add_poly_scaled(&temp, -1);
-
-        // Compute new factors
-        let mut p_factor_1b = self.p_factor_1a.multiply(&pb1);
-        let temp = self.p_factor_1b.multiply(&pa1);
-        p_factor_1b.add_poly_scaled(&temp, -1);
-
-        let mut p_factor_2b = self.p_factor_2a.multiply(&pb1);
-        let temp = self.p_factor_2b.multiply(&pa1);
-        p_factor_2b.add_poly_scaled(&temp, -1);
-
-        println!("new_poly_b: {} {:?}", new_poly_b, new_poly_b);
-        let degree_b = new_poly_b.get_degree(self.v);
-
-        Some(Self {
-            v: self.v,
-            poly1: self.poly1.clone(),
-            poly2: self.poly2.clone(),
-            p_factor_1a: self.p_factor_1b.clone(),
-            p_factor_2a: self.p_factor_2b.clone(),
-            p_factor_1b: Rc::new(p_factor_1b),
-            p_factor_2b: Rc::new(p_factor_2b),
-            poly_a: self.poly_b.clone(),
-            poly_b: Rc::new(new_poly_b),
-            degree_a: self.degree_b,
-            degree_b,
-        })
-    }
-}
 
 #[derive(Clone)]
 pub enum Poly {
@@ -399,7 +314,7 @@ impl Poly {
         }
     }
 
-    fn var_to_string(var_idx: u8) -> String {
+    pub fn var_to_string(var_idx: u8) -> String {
         let base = var_idx / 26;
         let offset = var_idx % 26;
         let c = (b'a' + offset) as char;
@@ -422,6 +337,13 @@ impl Poly {
                     polys.iter().map(|p| p.get_degree(v)).max().unwrap_or(0)
                 }
             }
+        }
+    }
+
+    pub fn has_var(&self, v: u8) -> bool {
+        match self {
+            Poly::Constant(_) => false,
+            Poly::Nested(v1, polys) => *v1 == v || (*v1 < v && polys.iter().any(|p| p.has_var(v))),
         }
     }
 
@@ -492,6 +414,10 @@ impl Poly {
 
     /// Reduces coefficients by dividing by their GCD if the largest coefficient is above 10000
     pub fn reduce_coefficients_if_large(&mut self) {
+        self.reduce_coefficients_if_above(10000);
+    }
+
+    pub fn reduce_coefficients_if_above(&mut self, threshold: i64) {
         // Find the largest absolute value using observe_coefficients
         let mut max_abs_coeff = 0;
         self.observe_coefficients(|x| {
@@ -499,7 +425,7 @@ impl Poly {
         });
 
         // Only proceed if the largest coefficient is above 10000
-        if max_abs_coeff <= 10000 {
+        if max_abs_coeff <= threshold {
             return;
         }
 
@@ -528,7 +454,7 @@ impl Poly {
     }
 
     /// Retains only the polynomials that are needed for finding the equation F(x, y) = 0
-    pub fn retain_relevant_polys(polys: Vec<Poly>, x_var: u8, y_var: u8) -> Vec<Poly> {
+    pub fn retain_relevant_polys(polys: Vec<Rc<Poly>>, x_var: u8, y_var: u8) -> Vec<Rc<Poly>> {
         // Find variables used in each polynomial
         let mut vars_used_in_poly: Vec<[bool; 256]> = Vec::new();
         for poly in &polys {
@@ -595,37 +521,120 @@ impl Poly {
     /// Substitute variables with modular polynomials
     ///
     /// Given a polynomial f(x1, x2, ..., xn) and a map of variable substitutions
-    /// where each variable xi is replaced by a modular polynomial pi(t),
+    /// where each variable xi^di is replaced by a modular polynomial pi(t),
     /// returns f(p1(t), p2(t), ..., pn(t)) as a modular polynomial.
-    pub fn substitute_modular_polys(&self, var_polys: &HashMap<u8, ModularPoly>) -> ModularPoly {
-        let p = var_polys.values().next().map(|poly| poly.p).unwrap();
+    pub fn substitute_modular_polys(
+        &self,
+        var_polys: &HashMap<u8, (ModularPoly, u8)>,
+    ) -> Result<ModularPoly, String> {
+        let p = var_polys.values().next().map(|poly| poly.0.p).unwrap();
         match self {
             Poly::Constant(c) => {
                 // Convert constant to modular polynomial
-                ModularPoly::constant(ModularPoly::from_i64(*c, p), p)
+                Ok(ModularPoly::constant(ModularPoly::from_i64(*c, p), p))
             }
             Poly::Nested(v, coeffs) => {
                 // Get the modular polynomial for this variable
-                let var_poly = var_polys.get(v).unwrap();
+                let (var_poly, degree) = var_polys.get(v).unwrap();
 
                 // Compute the result by evaluating the polynomial at var_poly
-                let mut result = ModularPoly::zero(var_poly.p);
-                let mut power = ModularPoly::constant(1, var_poly.p);
+                let mut result = ModularPoly::zero(p);
+                let mut power = ModularPoly::constant(1, p);
 
-                for coeff in coeffs {
+                for (i, coeff) in coeffs.iter().enumerate() {
+                    if i % *degree as usize != 0 && **coeff != Poly::Constant(0) {
+                        return Err(format!(
+                            "Non-zero coefficient for degree {} of {} found; only degrees divisible by {} can be substituted",
+                            i, v, degree
+                        ));
+                    }
+
                     // Substitute the coefficient polynomial
-                    let coeff_result = coeff.substitute_modular_polys(var_polys);
+                    let coeff_result = coeff.substitute_modular_polys(var_polys)?;
 
                     // Multiply by the current power of the variable polynomial
                     let term = &coeff_result * &power;
                     result = &result + &term;
 
                     // Update power for next iteration
-                    power = &power * var_poly;
+                    if i % *degree as usize == 0 {
+                        power = &power * var_poly;
+                    }
                 }
 
-                result
+                Ok(result)
             }
+        }
+    }
+
+    /// Finds the variable with the minimum degree across all polynomials
+    ///
+    /// This method collects all variables used in the polynomials using `fill_in_variables()`,
+    /// then for each variable except `x_var` and `y_var`, finds the polynomial that contains
+    /// this variable with the minimum degree across all polynomials.
+    ///
+    /// Returns a `VarSearchResult` containing the variable index, minimum degree, and polynomial index
+    /// for which this minimal degree is the smallest.
+    /// If there are no variables mentioned in the polynomials except `x_var` and `y_var`,
+    /// returns `None`.
+    pub fn get_min_degree_var(polys: &[Rc<Poly>], x_var: u8, y_var: u8) -> Option<VarSearchResult> {
+        // Collect all variables used in the polynomials
+        let mut all_vars = [false; 256];
+        for poly in polys {
+            poly.fill_in_variables(&mut all_vars);
+        }
+
+        // Find variables that are not x_var or y_var
+        let mut candidate_vars = Vec::new();
+        for (var_idx, &used) in all_vars.iter().enumerate() {
+            if used && var_idx != x_var as usize && var_idx != y_var as usize {
+                candidate_vars.push(var_idx as u8);
+            }
+        }
+
+        // If no candidate variables, return None
+        if candidate_vars.is_empty() {
+            return None;
+        }
+
+        // For each candidate variable, find the minimum degree across all polynomials
+        let mut min_degree_var = candidate_vars[0];
+        let mut min_degree = u32::MAX;
+        let mut min_poly_index = 0;
+
+        for &var in &candidate_vars {
+            let mut current_min_degree = u32::MAX;
+            let mut current_min_poly_index = 0;
+
+            // Find the minimum degree of this variable across all polynomials
+            for (poly_index, poly) in polys.iter().enumerate() {
+                let degree = poly.get_degree(var);
+                if degree > 0 {
+                    // Only consider polynomials that actually contain this variable
+                    if degree < current_min_degree {
+                        current_min_degree = degree;
+                        current_min_poly_index = poly_index;
+                    }
+                }
+            }
+
+            // If we found a valid degree for this variable and it's smaller than our current minimum
+            if current_min_degree < u32::MAX && current_min_degree < min_degree {
+                min_degree = current_min_degree;
+                min_degree_var = var;
+                min_poly_index = current_min_poly_index;
+            }
+        }
+
+        // If no valid degrees were found, return None
+        if min_degree == u32::MAX {
+            None
+        } else {
+            Some(VarSearchResult {
+                var: min_degree_var,
+                min_degree,
+                poly_index: min_poly_index,
+            })
         }
     }
 }
@@ -998,66 +1007,6 @@ mod tests {
     }
 
     #[test]
-    fn test_elimination_step() {
-        let poly1 = Poly::new("a + a*c^2 - 1 + c^2").unwrap();
-        let poly2 = Poly::new("b + b*c^2 - 2*c").unwrap();
-        let v = 2; // c
-
-        let step = EliminationStep::new(v, Rc::new(poly1), Rc::new(poly2));
-        assert_eq!(step.degree_a, 2); // degree of c in poly1
-        assert_eq!(step.degree_b, 2); // degree of c in poly2
-
-        // First step
-        let next_step = step.get_next_step().unwrap();
-        assert_eq!(next_step.degree_a, 2); // degree of c in poly_b
-        assert_eq!(next_step.degree_b, 1); // degree of c in new poly_b
-
-        assert_eq!(format!("{}", next_step.poly_a), "-2*c + b + c^2*b");
-        assert_eq!(format!("{}", next_step.poly_b), "2*c - 2*b + 2*c*a");
-
-        assert_eq!(format!("{}", next_step.p_factor_1a), "0");
-        assert_eq!(format!("{}", next_step.p_factor_2a), "1");
-        assert_eq!(format!("{}", next_step.p_factor_1b), "b");
-        assert_eq!(format!("{}", next_step.p_factor_2b), "-1 - a");
-
-        let step3 = next_step.get_next_step().unwrap();
-        assert_eq!(step3.degree_a, 1); // degree of c in poly_b
-        assert_eq!(step3.degree_b, 1); // degree of c in new poly_b
-
-        assert_eq!(format!("{}", step3.poly_a), "2*c - 2*b + 2*c*a");
-        assert_eq!(format!("{}", step3.poly_b), "-2*b + 2*c*b^2 + 2*b*a");
-
-        assert_eq!(format!("{}", step3.p_factor_1a), "b");
-        assert_eq!(format!("{}", step3.p_factor_2a), "-1 - a");
-        assert_eq!(format!("{}", step3.p_factor_1b), "2*b - c*b^2");
-        assert_eq!(format!("{}", step3.p_factor_2b), "c*b + c*b*a");
-
-        let step4 = step3.get_next_step().unwrap();
-        assert_eq!(step4.degree_a, 1); // degree of c in poly_b
-        assert_eq!(step4.degree_b, 0); // degree of c in new poly_b
-
-        assert_eq!(format!("{}", step4.poly_a), "-2*b + 2*c*b^2 + 2*b*a");
-        assert_eq!(format!("{}", step4.poly_b), "4*b - 4*b^3 - 4*b*a^2");
-        assert_eq!(
-            format!(
-                "{} {} {} {}",
-                step4.p_factor_1a, step4.p_factor_2a, step4.p_factor_1b, step4.p_factor_2b
-            ),
-            "2*b - c*b^2 c*b + c*b*a -4*b + 2*c*b^2 + 2*b^3 - 4*b*a + 2*c*b^2*a -2*c*b - 2*b^2 - 4*c*b*a - 2*b^2*a - 2*c*b*a^2"
-        );
-        let mut p_a = step4.poly1.multiply(&step4.p_factor_1a);
-        let p2_f2a = step4.poly2.multiply(&step4.p_factor_2a);
-        p_a.add_poly_scaled(&p2_f2a, 1);
-        let mut p_b = step4.poly1.multiply(&step4.p_factor_1b);
-        let p2_f2b = step4.poly2.multiply(&step4.p_factor_2b);
-        p_b.add_poly_scaled(&p2_f2b, 1);
-        assert_eq!(
-            format!("{} {}", p_a, p_b),
-            "-2*b + 2*c*b^2 + 2*b*a 4*b - 4*b^3 - 4*b*a^2"
-        );
-    }
-
-    #[test]
     fn test_poly_new() {
         // Test single-variable term with minus sign
         let poly = Poly::new("-a").unwrap();
@@ -1350,9 +1299,9 @@ mod tests {
     fn test_retain_relevant_polys() {
         // Test case 1: polys "0", "x + y", "x - y" (should remain just "x + y" and "x - y")
         let polys = vec![
-            Poly::new("0").unwrap(),
-            Poly::new("x + y").unwrap(),
-            Poly::new("x - y").unwrap(),
+            Rc::new(Poly::new("0").unwrap()),
+            Rc::new(Poly::new("x + y").unwrap()),
+            Rc::new(Poly::new("x - y").unwrap()),
         ];
         let result = Poly::retain_relevant_polys(polys, 23, 24); // x=23, y=24
         assert_eq!(result.len(), 2);
@@ -1361,9 +1310,9 @@ mod tests {
 
         // Test case 2: polys "a + a^2", "x - a", "y - a" (all polys should remain)
         let polys = vec![
-            Poly::new("a + a^2").unwrap(),
-            Poly::new("x - a").unwrap(),
-            Poly::new("y - a").unwrap(),
+            Rc::new(Poly::new("a + a^2").unwrap()),
+            Rc::new(Poly::new("x - a").unwrap()),
+            Rc::new(Poly::new("y - a").unwrap()),
         ];
         let result = Poly::retain_relevant_polys(polys, 23, 24); // x=23, y=24
         assert_eq!(result.len(), 3);
@@ -1373,10 +1322,10 @@ mod tests {
 
         // Test case 3: polys "a^2 + b^2 - 1", "x - a", "y - x", "b - 1" (all polys should remain)
         let polys = vec![
-            Poly::new("-1 + b^2 + a^2").unwrap(),
-            Poly::new("x - a").unwrap(),
-            Poly::new("y - x").unwrap(),
-            Poly::new("-1 + b").unwrap(),
+            Rc::new(Poly::new("-1 + b^2 + a^2").unwrap()),
+            Rc::new(Poly::new("x - a").unwrap()),
+            Rc::new(Poly::new("y - x").unwrap()),
+            Rc::new(Poly::new("-1 + b").unwrap()),
         ];
         let result = Poly::retain_relevant_polys(polys, 23, 24); // x=23, y=24
         assert_eq!(result.len(), 4);
@@ -1387,9 +1336,9 @@ mod tests {
 
         // Test case 4: polys "a + b + c", "x + y", "x - y" (only "x + y" and "x - y" should remain)
         let polys = vec![
-            Poly::new("a + b + c").unwrap(),
-            Poly::new("x + y").unwrap(),
-            Poly::new("x - y").unwrap(),
+            Rc::new(Poly::new("a + b + c").unwrap()),
+            Rc::new(Poly::new("x + y").unwrap()),
+            Rc::new(Poly::new("x - y").unwrap()),
         ];
         let result = Poly::retain_relevant_polys(polys, 23, 24); // x=23, y=24
         assert_eq!(result.len(), 2);
@@ -1400,49 +1349,55 @@ mod tests {
     #[test]
     fn test_retain_relevant_polys_edge_cases() {
         // Test case 1: Empty input
-        let polys: Vec<Poly> = vec![];
+        let polys: Vec<Rc<Poly>> = vec![];
         let result = Poly::retain_relevant_polys(polys, 0, 1);
         assert_eq!(result.len(), 0);
 
         // Test case 2: Single polynomial with x and y
-        let polys = vec![Poly::new("x + y").unwrap()];
+        let polys = vec![Rc::new(Poly::new("x + y").unwrap())];
         let result = Poly::retain_relevant_polys(polys, 23, 24);
         assert_eq!(result.len(), 1);
         assert_eq!(format!("{}", result[0]), "y + x");
 
         // Test case 3: Single polynomial without x or y
-        let polys = vec![Poly::new("a + b").unwrap()];
+        let polys = vec![Rc::new(Poly::new("a + b").unwrap())];
         let result = Poly::retain_relevant_polys(polys, 23, 24);
         assert_eq!(result.len(), 0);
 
         // Test case 4: Multiple polynomials, none with x or y
         let polys = vec![
-            Poly::new("a + b").unwrap(),
-            Poly::new("c + d").unwrap(),
-            Poly::new("e + f").unwrap(),
+            Rc::new(Poly::new("a + b").unwrap()),
+            Rc::new(Poly::new("c + d").unwrap()),
+            Rc::new(Poly::new("e + f").unwrap()),
         ];
         let result = Poly::retain_relevant_polys(polys, 23, 24);
         assert_eq!(result.len(), 0);
 
         // Test case 5: Polynomials with only x (no y)
-        let polys = vec![Poly::new("x + a").unwrap(), Poly::new("b + c").unwrap()];
+        let polys = vec![
+            Rc::new(Poly::new("x + a").unwrap()),
+            Rc::new(Poly::new("b + c").unwrap()),
+        ];
         let result = Poly::retain_relevant_polys(polys, 23, 24);
         assert_eq!(result.len(), 1);
         assert_eq!(format!("{}", result[0]), "x + a");
 
         // Test case 6: Polynomials with only y (no x)
-        let polys = vec![Poly::new("y + a").unwrap(), Poly::new("b + c").unwrap()];
+        let polys = vec![
+            Rc::new(Poly::new("y + a").unwrap()),
+            Rc::new(Poly::new("b + c").unwrap()),
+        ];
         let result = Poly::retain_relevant_polys(polys, 23, 24);
         assert_eq!(result.len(), 1);
         assert_eq!(format!("{}", result[0]), "y + a");
 
         // Test case 7: Complex chain of dependencies
         let polys = vec![
-            Poly::new("a + b").unwrap(),
-            Poly::new("x - a").unwrap(),
-            Poly::new("c + d").unwrap(),
-            Poly::new("y - c").unwrap(),
-            Poly::new("e + f").unwrap(),
+            Rc::new(Poly::new("a + b").unwrap()),
+            Rc::new(Poly::new("x - a").unwrap()),
+            Rc::new(Poly::new("c + d").unwrap()),
+            Rc::new(Poly::new("y - c").unwrap()),
+            Rc::new(Poly::new("e + f").unwrap()),
         ];
         let result = Poly::retain_relevant_polys(polys, 23, 24);
         assert_eq!(result.len(), 4);
@@ -1460,9 +1415,9 @@ mod tests {
         // Test case 1: Simple substitution a -> x^2 + 3x (mod 7)
         let poly = Poly::new("a^2 + a").unwrap(); // a^2 + a
         let mut var_polys = HashMap::new();
-        var_polys.insert(0, ModularPoly::new(vec![0, 3, 1], 7)); // x^2 + 3x
+        var_polys.insert(0, (ModularPoly::new(vec![0, 3, 1], 7), 1)); // x^2 + 3x, degree = 1
 
-        let result = poly.substitute_modular_polys(&var_polys);
+        let result = poly.substitute_modular_polys(&var_polys).unwrap();
         // (x^2 + 3x)^2 + (x^2 + 3x) = (x^4 + 6x^3 + 9x^2) + (x^2 + 3x) = x^4 + 6x^3 + 10x^2 + 3x
         // In Z/7Z: x^4 + 6x^3 + 3x^2 + 3x
         assert_eq!(result.coeffs, vec![0, 3, 3, 6, 1]);
@@ -1477,10 +1432,10 @@ mod tests {
         // Test case: a*b + 2*b + a^2 with a -> x^2 + 3x, b -> 5x + 3 (mod 7)
         let poly = Poly::new("a*b + 2*b + a^2").unwrap();
         let mut var_polys = HashMap::new();
-        var_polys.insert(0, ModularPoly::new(vec![0, 3, 1], 7)); // a -> x^2 + 3x
-        var_polys.insert(1, ModularPoly::new(vec![3, 5], 7)); // b -> 5x + 3
+        var_polys.insert(0, (ModularPoly::new(vec![0, 3, 1], 7), 1)); // a -> x^2 + 3x, degree = 1
+        var_polys.insert(1, (ModularPoly::new(vec![3, 5], 7), 1)); // b -> 5x + 3, degree = 1
 
-        let result = poly.substitute_modular_polys(&var_polys);
+        let result = poly.substitute_modular_polys(&var_polys).unwrap();
         // Manual calculation:
         // a^2 = (x^2 + 3x)^2 = x^4 + 6x^3 + 9x^2 = x^4 + 6x^3 + 2x^2 (mod 7)
         // 2*b = 2*(5x + 3) = 10x + 6 = 3x + 6 (mod 7)
@@ -1499,9 +1454,9 @@ mod tests {
         // Test case: Constant polynomial
         let poly = Poly::new("5").unwrap();
         let mut var_polys = HashMap::new();
-        var_polys.insert(0, ModularPoly::new(vec![0, 1], 7)); // x
+        var_polys.insert(0, (ModularPoly::new(vec![0, 1], 7), 1)); // x, degree = 1
 
-        let result = poly.substitute_modular_polys(&var_polys);
+        let result = poly.substitute_modular_polys(&var_polys).unwrap();
         assert_eq!(result.coeffs, vec![5]);
         assert_eq!(result.p, 7);
     }
@@ -1514,10 +1469,10 @@ mod tests {
         // Test case: Complex nested polynomial a^2*b + b^2 with substitutions
         let poly = Poly::new("a^2*b + b^2").unwrap();
         let mut var_polys = HashMap::new();
-        var_polys.insert(0, ModularPoly::new(vec![1, 2], 7)); // a -> 2x + 1
-        var_polys.insert(1, ModularPoly::new(vec![0, 1], 7)); // b -> x
+        var_polys.insert(0, (ModularPoly::new(vec![1, 2], 7), 1)); // a -> 2x + 1, degree = 1
+        var_polys.insert(1, (ModularPoly::new(vec![0, 1], 7), 1)); // b -> x, degree = 1
 
-        let result = poly.substitute_modular_polys(&var_polys);
+        let result = poly.substitute_modular_polys(&var_polys).unwrap();
         // Manual calculation:
         // a^2 = (2x + 1)^2 = 4x^2 + 4x + 1
         // a^2*b = (4x^2 + 4x + 1)*x = 4x^3 + 4x^2 + x
@@ -1536,10 +1491,10 @@ mod tests {
         // (p-10)x + 1 + 10x + 2 = px + 3 = 3 (mod p)
         let poly = Poly::new("a + b").unwrap();
         let mut var_polys = HashMap::new();
-        var_polys.insert(0, ModularPoly::new(vec![1, 3], 7)); // a -> 3x + 1
-        var_polys.insert(1, ModularPoly::new(vec![2, 4], 7)); // b -> 4x + 2
+        var_polys.insert(0, (ModularPoly::new(vec![1, 3], 7), 1)); // a -> 3x + 1, degree = 1
+        var_polys.insert(1, (ModularPoly::new(vec![2, 4], 7), 1)); // b -> 4x + 2, degree = 1
 
-        let result = poly.substitute_modular_polys(&var_polys);
+        let result = poly.substitute_modular_polys(&var_polys).unwrap();
         // (3x + 1) + (4x + 2) = 7x + 3 = 3 (mod 7)
         assert_eq!(result.coeffs, vec![3]);
         assert_eq!(result.p, 7);
@@ -1553,9 +1508,9 @@ mod tests {
         // Test case: Zero polynomial
         let poly = Poly::new("0").unwrap();
         let mut var_polys = HashMap::new();
-        var_polys.insert(0, ModularPoly::new(vec![1, 2], 7));
+        var_polys.insert(0, (ModularPoly::new(vec![1, 2], 7), 1)); // degree = 1
 
-        let result = poly.substitute_modular_polys(&var_polys);
+        let result = poly.substitute_modular_polys(&var_polys).unwrap();
         assert_eq!(result.coeffs, vec![0]);
         assert_eq!(result.p, 7);
     }
@@ -1568,11 +1523,182 @@ mod tests {
         // Test case: High degree polynomial
         let poly = Poly::new("a^3 + a^2 + a + 1").unwrap();
         let mut var_polys = HashMap::new();
-        var_polys.insert(0, ModularPoly::new(vec![0, 1], 7)); // a -> x
+        var_polys.insert(0, (ModularPoly::new(vec![0, 1], 7), 1)); // a -> x, degree = 1
 
-        let result = poly.substitute_modular_polys(&var_polys);
+        let result = poly.substitute_modular_polys(&var_polys).unwrap();
         // x^3 + x^2 + x + 1
         assert_eq!(result.coeffs, vec![1, 1, 1, 1]);
         assert_eq!(result.p, 7);
+    }
+
+    #[test]
+    fn test_get_min_degree_var_basic() {
+        // Test case 1: Simple case with one variable
+        let polys = vec![
+            Rc::new(Poly::new("a^2 + b").unwrap()), // degree of a: 2
+            Rc::new(Poly::new("a + c").unwrap()),   // degree of a: 1
+            Rc::new(Poly::new("b + c").unwrap()),   // no a
+        ];
+        let result = Poly::get_min_degree_var(&polys, 1, 2); // x=b, y=c
+        assert_eq!(
+            result,
+            Some(VarSearchResult {
+                var: 0,
+                min_degree: 1,
+                poly_index: 1
+            })
+        ); // a has minimum degree 1
+
+        // Test case 2: Multiple variables with different degrees
+        let polys = vec![
+            Rc::new(Poly::new("a^3 + b").unwrap()), // degree of a: 3
+            Rc::new(Poly::new("a^2 + c").unwrap()), // degree of a: 2
+            Rc::new(Poly::new("b^2 + c").unwrap()), // degree of b: 2
+            Rc::new(Poly::new("b + d").unwrap()),   // degree of b: 1
+        ];
+        let result = Poly::get_min_degree_var(&polys, 2, 3); // x=c, y=d
+        assert_eq!(
+            result,
+            Some(VarSearchResult {
+                var: 1,
+                min_degree: 1,
+                poly_index: 0,
+            })
+        ); // b has minimum degree 1
+
+        // Test case 3: Variable with degree 1 vs higher degree
+        let polys = vec![
+            Rc::new(Poly::new("a^2 + b").unwrap()), // degree of a: 2
+            Rc::new(Poly::new("a + c").unwrap()),   // degree of a: 1
+            Rc::new(Poly::new("b^3 + c").unwrap()), // degree of b: 3
+        ];
+        let result = Poly::get_min_degree_var(&polys, 2, 3); // x=c, y=d
+        assert_eq!(
+            result,
+            Some(VarSearchResult {
+                var: 0,
+                min_degree: 1,
+                poly_index: 1
+            })
+        ); // a has minimum degree 1
+    }
+
+    #[test]
+    fn test_get_min_degree_var_edge_cases() {
+        // Test case 1: Empty polynomials
+        let polys: Vec<Rc<Poly>> = vec![];
+        let result = Poly::get_min_degree_var(&polys, 0, 1);
+        assert_eq!(result, None);
+
+        // Test case 2: Only x and y variables
+        let polys = vec![
+            Rc::new(Poly::new("x + y").unwrap()),
+            Rc::new(Poly::new("x^2 + y^2").unwrap()),
+        ];
+        let result = Poly::get_min_degree_var(&polys, 23, 24); // x=23, y=24
+        assert_eq!(result, None);
+
+        // Test case 3: No variables except x and y
+        let polys = vec![
+            Rc::new(Poly::new("5").unwrap()),
+            Rc::new(Poly::new("10").unwrap()),
+        ];
+        let result = Poly::get_min_degree_var(&polys, 0, 1);
+        assert_eq!(result, None);
+
+        // Test case 4: Single polynomial with one variable
+        let polys = vec![Rc::new(Poly::new("a^2 + 1").unwrap())];
+        let result = Poly::get_min_degree_var(&polys, 1, 2);
+        assert_eq!(
+            result,
+            Some(VarSearchResult {
+                var: 0,
+                min_degree: 2,
+                poly_index: 0
+            })
+        ); // a has degree 2
+    }
+
+    #[test]
+    fn test_get_min_degree_var_complex() {
+        // Test case 1: Multiple variables with complex degrees
+        let polys = vec![
+            Rc::new(Poly::new("a^3 + b^2 + c").unwrap()), // a:3, b:2, c:1
+            Rc::new(Poly::new("a^2 + b^3 + d").unwrap()), // a:2, b:3, d:1
+            Rc::new(Poly::new("a + b + c^2").unwrap()),   // a:1, b:1, c:2
+        ];
+        let result = Poly::get_min_degree_var(&polys, 3, 4); // x=d, y=e
+        assert_eq!(
+            result,
+            Some(VarSearchResult {
+                var: 0,
+                min_degree: 1,
+                poly_index: 2
+            })
+        ); // a has minimum degree 1
+
+        // Test case 2: Variables that appear in some polynomials but not others
+        let polys = vec![
+            Rc::new(Poly::new("a^2 + b").unwrap()), // a:2, b:1
+            Rc::new(Poly::new("b^3 + c").unwrap()), // b:3, c:1
+            Rc::new(Poly::new("c^2 + d").unwrap()), // c:2, d:1
+        ];
+        let result = Poly::get_min_degree_var(&polys, 3, 4); // x=d, y=e
+        assert_eq!(
+            result,
+            Some(VarSearchResult {
+                var: 1,
+                min_degree: 1,
+                poly_index: 0
+            })
+        ); // b has minimum degree 1
+
+        // Test case 3: Variables with same minimum degree
+        let polys = vec![
+            Rc::new(Poly::new("a^2 + b^2").unwrap()), // a:2, b:2
+            Rc::new(Poly::new("a^2 + c^2").unwrap()), // a:2, c:2
+            Rc::new(Poly::new("b^2 + c^2").unwrap()), // b:2, c:2
+        ];
+        let result = Poly::get_min_degree_var(&polys, 3, 4); // x=d, y=e
+                                                             // Should return the first variable found with minimum degree
+        assert!(
+            result
+                == Some(VarSearchResult {
+                    var: 0,
+                    min_degree: 2,
+                    poly_index: 0
+                })
+                || result
+                    == Some(VarSearchResult {
+                        var: 1,
+                        min_degree: 2,
+                        poly_index: 0
+                    })
+                || result
+                    == Some(VarSearchResult {
+                        var: 2,
+                        min_degree: 2,
+                        poly_index: 0
+                    })
+        );
+    }
+
+    #[test]
+    fn test_get_min_degree_var_variable_ordering() {
+        // Test that variables are processed in order and the first one with minimum degree is returned
+        let polys = vec![
+            Rc::new(Poly::new("a^2 + b^1").unwrap()), // a:2, b:1
+            Rc::new(Poly::new("c^1 + d^2").unwrap()), // c:1, d:2
+        ];
+        let result = Poly::get_min_degree_var(&polys, 4, 5); // x=e, y=f
+                                                             // Both b and c have degree 1, but b (index 1) should be returned first
+        assert_eq!(
+            result,
+            Some(VarSearchResult {
+                var: 1,
+                min_degree: 1,
+                poly_index: 0
+            })
+        ); // b has minimum degree 1
     }
 }

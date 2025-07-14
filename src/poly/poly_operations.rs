@@ -168,14 +168,16 @@ impl PolyOperations for Poly {
                 let d = degree as usize;
                 let len = polys1.len();
                 // Remainder: terms of degree < d
-                let remainder =
+                let mut remainder =
                     Poly::Nested(*v1, polys1.iter().take(d.min(len)).cloned().collect());
                 // Factor: terms of degree >= d, with degree shifted down by d
-                let factor = if d >= len {
+                let mut factor = if d >= len {
                     Poly::Constant(0)
                 } else {
                     Poly::Nested(*v1, polys1.iter().skip(d).cloned().collect())
                 };
+                factor.cleanup();
+                remainder.cleanup();
                 (factor, remainder)
             }
             _ => unreachable!(),

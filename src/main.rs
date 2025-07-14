@@ -1,4 +1,5 @@
 mod db;
+mod elimination;
 mod fint;
 mod modular_poly;
 mod poly;

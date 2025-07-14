@@ -7,10 +7,12 @@ use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::process::Command;
+use std::rc::Rc;
 
 use crate::db::SceneEntity;
 use crate::db::SceneObjectEntity;
 use crate::db::SceneObjectModel;
+use crate::elimination::Elimination;
 use crate::fint::FInt;
 use crate::poly::PolyConversion;
 use crate::poly::{Poly, PolyOperations, SingleOutResult};
@@ -231,11 +233,16 @@ impl Scene {
 
     pub fn get_curve_equation(equations: Vec<&str>, plot: &Plot) -> Result<Poly, SceneError> {
         // Convert equations to polynomials
-        let mut polys: Vec<Poly> = equations
+        let mut polys: Vec<Rc<Poly>> = equations
             .into_iter()
-            .map(Poly::new)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| SceneError::InvalidEquation(e.to_string()))?;
+            .map(|s| {
+                Rc::new(
+                    Poly::new(s)
+                        .map_err(|e| SceneError::InvalidEquation(e.to_string()))
+                        .unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
 
         // Convert x and y to variable indices
         let (x_var, y_var) = Self::parse_plot_vars(plot)?;
@@ -279,11 +286,11 @@ impl Scene {
                                 new_polys.push(polys[i].clone());
                             }
                             SingleOutResult::Linear(_, _) | SingleOutResult::Nonlinear => {
-                                new_polys.push(polys[i].substitute_linear(
+                                new_polys.push(Rc::new(polys[i].substitute_linear(
                                     v as u8,
                                     poly.clone(),
                                     linear_k,
-                                ));
+                                )));
                             }
                         }
                     }
@@ -300,6 +307,27 @@ impl Scene {
                 .collect::<Vec<String>>()
                 .join("\n")
         );
+
+        let mut elimination = Elimination::new(&polys, x_var, y_var);
+        loop {
+            match elimination.get_var_to_eliminate() {
+                Some(var_search_result) => {
+                    info!(
+                        "--- Eliminating variable {} from\n{}",
+                        Poly::var_to_string(var_search_result.var),
+                        elimination
+                            .polys
+                            .iter()
+                            .map(|p| p.to_string())
+                            .collect::<Vec<String>>()
+                            .join("\n")
+                    );
+                    elimination.eliminate_var(var_search_result);
+                }
+                None => break,
+            }
+        }
+        let polys = elimination.polys.clone();
 
         // Check if we have exactly one polynomial left
         if polys.len() != 1 {
@@ -320,8 +348,36 @@ impl Scene {
                 )));
             }
         }
+        let mut result = polys[0].clone();
+        Rc::make_mut(&mut result).reduce_coefficients_if_above(1);
+        let factors = result
+            .factor()
+            .map_err(|e| SceneError::InvalidEquation(e))?;
+        if factors.len() > 1 {
+            info!(
+                "Factors: {}",
+                factors
+                    .iter()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            );
+            let mut product = Poly::Constant(1);
+            for factor in factors {
+                if elimination
+                    .check_factor(&factor)
+                    .map_err(|e| SceneError::InvalidEquation(e))?
+                {
+                    product = product.multiply(&factor);
+                } else {
+                    info!("Skipping factor {}", factor);
+                }
+            }
+            info!("Product: {}", product);
+            result = Rc::new(product);
+        }
 
-        Ok(polys.remove(0))
+        Ok((*result).clone())
     }
 
     pub fn solve_and_plot(

@@ -38,6 +38,20 @@ impl ModularPoly {
         Self::new(vec![c % p], p)
     }
 
+    /// Create a random polynomial of the given degree
+    pub fn random(degree: u8, p: u64) -> Self {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let max_coeff = std::cmp::min(p - 1, 10000);
+
+        let mut coeffs = Vec::new();
+        for _ in 0..=degree {
+            coeffs.push(rng.random_range(1..=max_coeff));
+        }
+
+        Self::new(coeffs, p)
+    }
+
     /// Get the degree of the polynomial
     pub fn degree(&self) -> usize {
         if self.coeffs.len() <= 1 {
@@ -66,11 +80,11 @@ impl ModularPoly {
 
     /// Add two coefficients modulo p
     fn add_mod(a: u64, b: u64, p: u64) -> u64 {
-        let sum = a + b;
-        if sum >= p {
-            sum - p
+        let sum = a as i128 + b as i128;
+        if sum >= p as i128 {
+            (sum - p as i128) as u64
         } else {
-            sum
+            sum as u64
         }
     }
 
@@ -113,7 +127,10 @@ impl ModularPoly {
         }
 
         if r.0 != 1 {
-            info!("Modular inverse of {} modulo {} is undefined: r.0 = {}", a, p, r.0);
+            info!(
+                "Modular inverse of {} modulo {} is undefined: r.0 = {}",
+                a, p, r.0
+            );
             return None; // No inverse exists
         }
 
@@ -129,27 +146,24 @@ impl ModularPoly {
     /// Computes both the quotient and remainder of polynomial division.
     /// Returns None if division is not possible (e.g., divisor is zero).
     /// Returns Some((quotient, remainder)) where dividend = quotient * divisor + remainder.
-    pub fn get_quotient_and_remainder(
-        &self,
-        divisor: &ModularPoly,
-    ) -> Option<(ModularPoly, ModularPoly)> {
+    pub fn get_quotient_and_remainder(&self, divisor: &ModularPoly) -> (ModularPoly, ModularPoly) {
         assert_eq!(
             self.p, divisor.p,
             "Cannot compute quotient and remainder for polynomials with different moduli"
         );
 
         if divisor.is_zero() {
-            return None;
+            panic!("Divisor is zero");
         }
 
         if self.is_zero() {
-            return Some((ModularPoly::zero(self.p), ModularPoly::zero(self.p)));
+            return (ModularPoly::zero(self.p), ModularPoly::zero(self.p));
         }
 
         if divisor.is_constant() {
             let divisor_const = divisor.coeffs[0];
             if divisor_const == 0 {
-                return None;
+                panic!("Divisor is zero");
             }
 
             let mut quotient_coeffs = Vec::new();
@@ -160,10 +174,10 @@ impl ModularPoly {
                     self.p,
                 ));
             }
-            return Some((
+            return (
                 ModularPoly::new(quotient_coeffs, self.p),
                 ModularPoly::zero(self.p),
-            ));
+            );
         }
 
         let mut dividend = self.clone();
@@ -199,25 +213,23 @@ impl ModularPoly {
 
             // If the degree didn't decrease, we have a problem
             if dividend.degree() >= dividend_degree {
-                return None;
+                panic!("Degree did not decrease");
             }
         }
 
-        Some((ModularPoly::new(quotient_coeffs, self.p), dividend))
+        (ModularPoly::new(quotient_coeffs, self.p), dividend)
     }
 
     /// Computes the remainder of polynomial division.
     /// Returns None if division is not possible (e.g., divisor is zero).
-    pub fn remainder(&self, divisor: &ModularPoly) -> Option<ModularPoly> {
-        self.get_quotient_and_remainder(divisor)
-            .map(|(_, remainder)| remainder)
+    pub fn remainder(&self, divisor: &ModularPoly) -> ModularPoly {
+        self.get_quotient_and_remainder(divisor).1
     }
 
     /// Computes the quotient of polynomial division.
     /// Returns None if division is not possible (e.g., divisor is zero).
-    pub fn quotient(&self, divisor: &ModularPoly) -> Option<ModularPoly> {
-        self.get_quotient_and_remainder(divisor)
-            .map(|(quotient, _)| quotient)
+    pub fn quotient(&self, divisor: &ModularPoly) -> ModularPoly {
+        self.get_quotient_and_remainder(divisor).0
     }
 
     /// Computes the multiplicative inverse of this polynomial modulo another polynomial.
@@ -241,10 +253,7 @@ impl ModularPoly {
         while !r_curr.is_zero() {
             // Compute quotient and remainder
             let division_result = r_prev.get_quotient_and_remainder(&r_curr);
-            if division_result.is_none() {
-                return None;
-            }
-            let (q_poly, r_next) = division_result.unwrap();
+            let (q_poly, r_next) = division_result;
 
             if !r_next.is_zero() {
                 // Update Bézout coefficients
@@ -255,7 +264,6 @@ impl ModularPoly {
             // Update remainders
             r_prev = r_curr.clone();
             r_curr = r_next;
-            info!("r_prev: {}, r_curr: {}", r_prev, r_curr);
         }
 
         // The GCD is r_prev, and s_curr contains the Bézout coefficient
@@ -553,7 +561,7 @@ mod tests {
         // Test case 1: Simple division with remainder
         let dividend = ModularPoly::new(vec![1, 2, 1], 7); // x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // x^2 + 2x + 1 = (x + 1)(x + 1) + 0, so remainder should be 0
         assert_eq!(remainder.coeffs, vec![0]);
         assert!(remainder.is_zero());
@@ -564,7 +572,7 @@ mod tests {
         // Test case 2: Division with non-zero remainder
         let dividend = ModularPoly::new(vec![2, 3, 1], 7); // x^2 + 3x + 2
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // x^2 + 3x + 2 = (x + 1)(x + 2) + 0, but in mod 7: x^2 + 3x + 2 = (x + 1)(x + 2) + 0
         // Actually: x^2 + 3x + 2 = (x + 1)(x + 2) + 0
         assert_eq!(remainder.coeffs, vec![0]);
@@ -575,7 +583,7 @@ mod tests {
         // Test case 3: Constant dividend
         let dividend = ModularPoly::new(vec![5], 7); // 5
         let divisor = ModularPoly::new(vec![1, 2], 7); // x + 2
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // 5 mod (x + 2) = 5
         assert_eq!(remainder.coeffs, vec![5]);
     }
@@ -585,7 +593,7 @@ mod tests {
         // Test case 4: Constant divisor
         let dividend = ModularPoly::new(vec![1, 2, 3], 7); // 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![2], 7); // 2
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // 2 has a multiplicative inverse mod 7, so the remainder should be 0
         assert_eq!(remainder.coeffs, vec![0]);
     }
@@ -595,18 +603,9 @@ mod tests {
         // Test case 5: Zero dividend
         let dividend = ModularPoly::zero(7);
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         assert_eq!(remainder.coeffs, vec![0]);
         assert!(remainder.is_zero());
-    }
-
-    #[test]
-    fn test_remainder_zero_divisor() {
-        // Test case 6: Zero divisor (should return None)
-        let dividend = ModularPoly::new(vec![1, 2, 1], 7);
-        let divisor = ModularPoly::zero(7);
-        let remainder = dividend.remainder(&divisor);
-        assert!(remainder.is_none());
     }
 
     #[test]
@@ -614,7 +613,7 @@ mod tests {
         // Test case 7: Dividend has smaller degree than divisor
         let dividend = ModularPoly::new(vec![1, 2], 7); // 2x + 1
         let divisor = ModularPoly::new(vec![1, 0, 1], 7); // x^2 + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // Should return the dividend unchanged
         assert_eq!(remainder.coeffs, vec![1, 2]);
     }
@@ -624,7 +623,7 @@ mod tests {
         // Test case 8: Complex polynomials
         let dividend = ModularPoly::new(vec![1, 2, 3, 4], 7); // 4x^3 + 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // Manual calculation: 4x^3 + 3x^2 + 2x + 1 = (x + 1)(4x^2 - x + 3) + (-2)
         // In mod 7: remainder should be 5 (since -2 ≡ 5 mod 7)
         assert_eq!(remainder.coeffs, vec![5]);
@@ -635,7 +634,7 @@ mod tests {
         // Test case 9: Quadratic divisor
         let dividend = ModularPoly::new(vec![1, 2, 3, 4], 7); // 4x^3 + 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 0, 1], 7); // x^2 + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // Manual calculation: 4x^3 + 3x^2 + 2x + 1 = (x^2 + 1)(4x + 3) + (-2x - 2)
         // In mod 7: remainder should be 5x + 5
         assert_eq!(remainder.coeffs, vec![5, 5]);
@@ -646,7 +645,7 @@ mod tests {
         // Test case 10: Large coefficients
         let dividend = ModularPoly::new(vec![LARGE_PRIME - 1, LARGE_PRIME - 2], LARGE_PRIME);
         let divisor = ModularPoly::new(vec![1, 1], LARGE_PRIME); // x + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         // (LARGE_PRIME - 2)x + (LARGE_PRIME - 1) mod (x + 1)
         // = (LARGE_PRIME - 2)(-1) + (LARGE_PRIME - 1) = -LARGE_PRIME + 2 + LARGE_PRIME - 1 = 1
         assert_eq!(remainder.coeffs, vec![1]);
@@ -670,7 +669,7 @@ mod tests {
         // Test case 12: Verify that (quotient * divisor + remainder) = dividend
         let dividend = ModularPoly::new(vec![1, 2, 3, 4], 7); // 4x^3 + 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
 
         // For this specific case, we can verify the remainder is correct
         // by checking that it's a constant (degree 0)
@@ -683,7 +682,7 @@ mod tests {
         // Test case 13: Edge cases
         let dividend = ModularPoly::new(vec![1], 7); // 1
         let divisor = ModularPoly::new(vec![1], 7); // 1
-        let remainder = dividend.remainder(&divisor).unwrap();
+        let remainder = dividend.remainder(&divisor);
         assert_eq!(remainder.coeffs, vec![0]);
     }
 
@@ -692,7 +691,7 @@ mod tests {
         // Test case 1: Basic division
         let dividend = ModularPoly::new(vec![1, 2, 1], 7); // x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // x^2 + 2x + 1 = (x + 1)(x + 1) + 0
@@ -709,7 +708,7 @@ mod tests {
         // Test case 2: Division with non-zero remainder
         let dividend = ModularPoly::new(vec![1, 2, 3], 7); // 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 3x^2 + 2x + 1 = (x + 1)(3x - 1) + 2
@@ -727,7 +726,7 @@ mod tests {
         // Test case 3: Constant dividend
         let dividend = ModularPoly::new(vec![5], 7); // 5
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 5 = (x + 1)(0) + 5
@@ -744,7 +743,7 @@ mod tests {
         // Test case 4: Constant divisor
         let dividend = ModularPoly::new(vec![1, 2, 3], 7); // 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![2], 7); // 2
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 3x^2 + 2x + 1 = 2(5x^2 + 1x + 4) + 0
@@ -762,7 +761,7 @@ mod tests {
         // Test case 5: Zero dividend
         let dividend = ModularPoly::zero(7);
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 0 = (x + 1)(0) + 0
@@ -775,20 +774,11 @@ mod tests {
     }
 
     #[test]
-    fn test_get_quotient_and_remainder_zero_divisor() {
-        // Test case 6: Zero divisor (should return None)
-        let dividend = ModularPoly::new(vec![1, 2, 1], 7);
-        let divisor = ModularPoly::zero(7);
-        let result = dividend.get_quotient_and_remainder(&divisor);
-        assert!(result.is_none());
-    }
-
-    #[test]
     fn test_get_quotient_and_remainder_dividend_smaller_degree() {
         // Test case 7: Dividend has smaller degree than divisor
         let dividend = ModularPoly::new(vec![1, 2], 7); // 2x + 1
         let divisor = ModularPoly::new(vec![1, 0, 1], 7); // x^2 + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 2x + 1 = (x^2 + 1)(0) + (2x + 1)
@@ -805,7 +795,7 @@ mod tests {
         // Test case 8: Complex polynomials
         let dividend = ModularPoly::new(vec![1, 2, 3, 4], 7); // 4x^3 + 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 4x^3 + 3x^2 + 2x + 1 = (x + 1)(4x^2 - x + 3) + (-2)
@@ -822,7 +812,7 @@ mod tests {
         // Test case 9: Quadratic divisor
         let dividend = ModularPoly::new(vec![1, 2, 3, 4], 7); // 4x^3 + 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 0, 1], 7); // x^2 + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 4x^3 + 3x^2 + 2x + 1 = (x^2 + 1)(4x + 3) + (-2x - 2)
@@ -839,7 +829,7 @@ mod tests {
         // Test case 10: Large coefficients
         let dividend = ModularPoly::new(vec![LARGE_PRIME - 1, LARGE_PRIME - 2], LARGE_PRIME);
         let divisor = ModularPoly::new(vec![1, 1], LARGE_PRIME); // x + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // (LARGE_PRIME - 2)x + (LARGE_PRIME - 1) mod (x + 1)
@@ -869,7 +859,7 @@ mod tests {
         // Test case 12: Verify that (quotient * divisor + remainder) = dividend
         let dividend = ModularPoly::new(vec![1, 2, 3, 4], 7); // 4x^3 + 3x^2 + 2x + 1
         let divisor = ModularPoly::new(vec![1, 1], 7); // x + 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // Verify the fundamental identity: dividend = quotient * divisor + remainder
@@ -882,7 +872,7 @@ mod tests {
         // Test case 13: Edge cases
         let dividend = ModularPoly::new(vec![1], 7); // 1
         let divisor = ModularPoly::new(vec![1], 7); // 1
-        let result = dividend.get_quotient_and_remainder(&divisor).unwrap();
+        let result = dividend.get_quotient_and_remainder(&divisor);
         let (quotient, remainder) = result;
 
         // 1 = 1(1) + 0
@@ -907,7 +897,7 @@ mod tests {
 
         // Verify: (x + 1) * inv ≡ 1 (mod x^2 + 1)
         let product = &p * &inv;
-        let remainder = product.remainder(&q).unwrap();
+        let remainder = product.remainder(&q);
         assert_eq!(remainder.coeffs, vec![1]); // Should be 1
     }
 
@@ -920,7 +910,7 @@ mod tests {
 
         // Verify: 2 * inv ≡ 1 (mod x^2 + 1)
         let product = &p * &inv;
-        let remainder = product.remainder(&q).unwrap();
+        let remainder = product.remainder(&q);
         assert_eq!(remainder.coeffs, vec![1]); // Should be 1
     }
 
@@ -974,7 +964,7 @@ mod tests {
 
         // Verify: (2x + 1) * inv ≡ 1 (mod x^3 + 1)
         let product = &p * &inv;
-        let remainder = product.remainder(&q).unwrap();
+        let remainder = product.remainder(&q);
         assert_eq!(remainder.coeffs, vec![1]); // Should be 1
     }
 
@@ -998,7 +988,7 @@ mod tests {
 
         // Verify: (x + 1) * inv ≡ 1 (mod x^2 + x + 1)
         let product = &p * &inv;
-        let remainder = product.remainder(&q).unwrap();
+        let remainder = product.remainder(&q);
         assert_eq!(remainder.coeffs, vec![1]); // Should be 1
     }
 
@@ -1011,7 +1001,7 @@ mod tests {
 
         // Verify: (LARGE_PRIME - 1) * inv ≡ 1 (mod x^2 + 1)
         let product = &p * &inv;
-        let remainder = product.remainder(&q).unwrap();
+        let remainder = product.remainder(&q);
         assert_eq!(remainder.coeffs, vec![1]); // Should be 1
     }
 
@@ -1024,12 +1014,12 @@ mod tests {
 
         // Verify: p * inv ≡ 1 (mod q)
         let product = &p * &inv;
-        let remainder = product.remainder(&q).unwrap();
+        let remainder = product.remainder(&q);
         assert_eq!(remainder.coeffs, vec![1]); // Should be 1
 
         // Also verify: inv * p ≡ 1 (mod q)
         let product2 = &inv * &p;
-        let remainder2 = product2.remainder(&q).unwrap();
+        let remainder2 = product2.remainder(&q);
         assert_eq!(remainder2.coeffs, vec![1]); // Should be 1
     }
 
