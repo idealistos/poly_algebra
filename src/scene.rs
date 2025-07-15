@@ -102,6 +102,28 @@ impl Scene {
         Ok(objects_to_delete)
     }
 
+    pub async fn delete_scene(&mut self, db: &DatabaseConnection) -> Result<(), SceneError> {
+        // Delete all scene objects from database (cascade will handle this automatically)
+        // But we'll also delete them explicitly to be sure
+        SceneObjectModel::delete_objects(
+            db,
+            self.id,
+            &self.objects.keys().cloned().collect::<Vec<_>>(),
+        )
+        .await?;
+
+        // Delete the scene from database
+        SceneEntity::delete_by_id(self.id)
+            .exec(db)
+            .await
+            .map_err(|e| SceneError::DatabaseError(e.to_string()))?;
+
+        // Clear objects from memory
+        self.objects.clear();
+
+        Ok(())
+    }
+
     /// Recursively collect all objects that depend on the given object
     pub fn collect_dependent_objects(&self, target_name: &str) -> Vec<String> {
         let mut to_delete = HashSet::new();
@@ -861,5 +883,72 @@ is_constant(d(P1, P2))"#;
         let scene_id = body.get("id").unwrap().as_i64().unwrap();
         let scene_name = body.get("name").unwrap().as_str().unwrap();
         assert_eq!(scene_name, format!("Scene {}", scene_id));
+    }
+
+    #[tokio::test]
+    async fn test_delete_scene() {
+        let db = setup_test_db().await;
+
+        // Create another scene
+        let scene2 = SceneActiveModel {
+            id: Set(2),
+            name: Set("Scene to Delete".to_string()),
+            ..Default::default()
+        };
+        let scene2 = scene2.insert(&db).await.unwrap();
+
+        // Create a scene object in the scene to be deleted
+        let point_props = json!({
+            "value": "10, 20"
+        });
+        SceneObjectModel::save_object(&db, scene2.id, "P1", ObjectType::FixedPoint, point_props)
+            .await
+            .unwrap();
+
+        // Verify the scene and its object exist
+        let scene_exists = SceneEntity::find_by_id(scene2.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .is_some();
+        assert!(scene_exists);
+
+        let object_exists = SceneObjectEntity::find()
+            .filter(crate::db::SceneObjectColumn::SceneId.eq(scene2.id))
+            .one(&db)
+            .await
+            .unwrap()
+            .is_some();
+        assert!(object_exists);
+
+        // Load the scene and delete it
+        let mut scene = Scene::new(scene2.id);
+        scene.load_objects_and_view(&db).await.unwrap();
+
+        // Verify scene has objects before deletion
+        assert_eq!(scene.objects.len(), 1);
+        assert!(scene.objects.contains_key("P1"));
+
+        // Delete the scene
+        scene.delete_scene(&db).await.unwrap();
+
+        // Verify scene is cleared in memory
+        assert_eq!(scene.objects.len(), 0);
+
+        // Verify scene and its objects are deleted from database
+        let scene_exists = SceneEntity::find_by_id(scene2.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .is_none();
+        assert!(scene_exists);
+
+        let object_exists = SceneObjectEntity::find()
+            .filter(crate::db::SceneObjectColumn::SceneId.eq(scene2.id))
+            .one(&db)
+            .await
+            .unwrap()
+            .is_none();
+        assert!(object_exists);
     }
 }

@@ -212,8 +212,11 @@ class Vector:
     def rotated90(self) -> "Vector":
         return Vector(self.y, -self.x)
 
+    def length_sqr(self) -> Value:
+        return self * self
+
     def length(self) -> Value:
-        return sqrt(self * self)
+        return sqrt(self.length_sqr())
 
     def __add__(self, other: "Vector") -> "Vector":
         return Vector(self.x + other.x, self.y + other.y)
@@ -255,6 +258,9 @@ class Line:
         equations.append(f"{v}")
         equations.append(f"{v.initial}")
 
+    def distance_to_point_sqr(self, p: Point) -> Value:
+        return ((p - self.o) * self.n) ** i(2) / self.n.length_sqr()
+
     def distance_to_point(self, p: Point) -> Value:
         return (p - self.o) * self.n / self.n.length()
 
@@ -274,8 +280,14 @@ def d(a: Point | Line, b: Point | Line) -> Value:
     raise Exception("d() cannot be called with two lines")
 
 
-def d_sqr(a: Point, b: Point) -> Value:
-    return (a.x - b.x) ** i(2) + (a.y - b.y) ** i(2)
+def d_sqr(a: Point | Line, b: Point | Line) -> Value:
+    if isinstance(a, Line) and isinstance(b, Point):
+        return a.distance_to_point_sqr(b)
+    if isinstance(a, Point) and isinstance(b, Line):
+        return b.distance_to_point_sqr(a)
+    if isinstance(a, Point) and isinstance(b, Point):
+        return (a.x - b.x) ** i(2) + (a.y - b.y) ** i(2)
+    raise Exception("d() cannot be called with two lines")
 
 
 def is_constant(x: Value):

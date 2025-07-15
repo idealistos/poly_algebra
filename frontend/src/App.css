@@ -22,6 +22,9 @@
 
 .scene-selector {
     margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .scene-select {
@@ -145,17 +148,8 @@
     outline: none;
 }
 
-.plot-toggle-on {
-    background: #d32f2f;
-    color: white;
-    border-color: #d32f2f;
-}
 
-.plot-toggle-off {
-    background: #f5f5f5;
-    color: #666;
-    border-color: #ddd;
-}
+
 
 .status-bar {
     position: absolute;
@@ -223,4 +217,46 @@
 
 .modal-button-ok {
     composes: modal-button;
+}
+
+.scene-management-button {
+    padding: 4px 8px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #f8f9fa;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.scene-management-button:hover {
+    background: #e9ecef;
+}
+
+.object-line {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    background: #fff;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.object-line-selected {
+    background: #e3f0ff;
+}
+
+.object-line:hover {
+    background: #f8f9fa;
+}
+
+.object-line-selected:hover {
+    background: #d1e7ff;
+}
+
+.object-icon {
+    margin-right: 10px;
 }

@@ -4,7 +4,8 @@ import { ActionRibbon } from './ActionRibbon';
 import { ActionType, ObjectType, ShapeState } from './enums';
 import type { Action, Shape, PlotPointElement } from './types';
 import './App.css';
-import { createShapeForDBObject } from './utils';
+import { createShapeForDBObject, PLOT_COLORS } from './utils';
+import { SceneManagementModal } from './SceneManagementModal';
 
 function InvariantModal({
   mousePos,
@@ -129,6 +130,7 @@ async function deleteShape(
 interface SceneInfo {
   id: number;
   name: string;
+  created_at: string;
 }
 
 function App() {
@@ -145,6 +147,7 @@ function App() {
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [displayedPlotNames, setDisplayedPlotNames] = useState<Set<string>>(new Set());
   const [plotPointsByLocusName, setPlotPointsByLocusName] = useState<Record<string, PlotPointElement[][]>>({});
+  const [isSceneManagementModalOpen, setIsSceneManagementModalOpen] = useState(false);
 
   const unsetAction = useCallback(() => {
     setCurrentAction(null);
@@ -224,13 +227,11 @@ function App() {
 
   // Reset state when scene changes
   useEffect(() => {
-    if (selectedSceneId !== null) {
-      setStagedShapeName(null);
-      setStatusMessage(null);
-      setDisplayedPlotNames(new Set());
-      setPlotPointsByLocusName({});
-      setShapes([]);
-    }
+    setStagedShapeName(null);
+    setStatusMessage(null);
+    setDisplayedPlotNames(new Set());
+    setPlotPointsByLocusName({});
+    setShapes([]);
   }, [selectedSceneId]);
 
   const handleActionClick = useCallback((action: Action) => {
@@ -264,14 +265,25 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Backspace') {
-        // Find the currently selected shape
-        const selectedShape = shapes.find(shape =>
-          shape.state === ShapeState.Selected || shape.state === ShapeState.SuggestedSelected
+        // Check if any text input field is focused
+        const activeElement = document.activeElement;
+        const isTextInputFocused = activeElement && (
+          activeElement.tagName === 'INPUT' ||
+          activeElement.tagName === 'TEXTAREA' ||
+          (activeElement instanceof HTMLElement && activeElement.contentEditable === 'true')
         );
 
-        if (selectedShape) {
-          e.preventDefault(); // Prevent default backspace behavior
-          handleDeleteShape(selectedShape);
+        // Only handle backspace for shape deletion if no text input is focused
+        if (!isTextInputFocused) {
+          // Find the currently selected shape
+          const selectedShape = shapes.find(shape =>
+            shape.state === ShapeState.Selected || shape.state === ShapeState.SuggestedSelected
+          );
+
+          if (selectedShape) {
+            e.preventDefault(); // Prevent default backspace behavior
+            handleDeleteShape(selectedShape);
+          }
         }
       }
     };
@@ -283,6 +295,7 @@ function App() {
   // Reusable function to fetch plot points for a locus
   const fetchPlotPoints = useCallback(async (locusName: string) => {
     try {
+      setStatusMessage("Computing the curve...");
       const response = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/plot/${locusName}?width=${window.innerWidth}&height=${window.innerHeight}`);
       if (!response.ok) {
         const text = await response.text();
@@ -299,12 +312,23 @@ function App() {
 
       // Add to displayed plot names
       setDisplayedPlotNames(prev => new Set([...prev, locusName]));
+
+      // Update status message with point count
+      setStatusMessage(`Computed the curve (point count: ${plotPoints.length})`);
     } catch (err) {
       console.error(`Failed to fetch plot points for locus ${locusName}:`, err);
       setStatusMessage(`Error: Failed to fetch plot points for locus ${locusName}: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
       throw err;
     }
   }, [selectedSceneId, setPlotPointsByLocusName, setDisplayedPlotNames, setStatusMessage]);
+
+  // Helper function to get locus ordinal number
+  const getLocusOrdinal = useCallback((locusName: string) => {
+    const locusShapes = shapes.filter(shape =>
+      shape.dbObject.object_type === ObjectType.Locus
+    );
+    return locusShapes.findIndex(shape => shape.dbObject.name === locusName) % 10;
+  }, [shapes]);
 
   const handleTogglePlot = useCallback(async (shapeName: string) => {
     const isCurrentlyDisplayed = displayedPlotNames.has(shapeName);
@@ -409,33 +433,42 @@ function App() {
               </button>
             </div>
           ) : (
-            <select
-              className="scene-select"
-              value={selectedSceneId ?? ''}
-              onChange={e => {
-                const value = e.target.value;
-                if (value === 'new') {
-                  setIsCreatingScene(true);
-                } else if (value === '') {
-                  setSelectedSceneId(null);
-                } else {
-                  setSelectedSceneId(Number(value));
-                }
-              }}
-            >
-              {scenes.length === 0 ? (
-                <option value="">Select a scene...</option>
-              ) : (
-                <>
-                  {scenes.map(scene => (
-                    <option key={scene.id} value={scene.id}>
-                      {`${scene.name} (ID: ${scene.id})`}
-                    </option>
-                  ))}
-                </>
-              )}
-              <option value="new">&lt;new...&gt;</option>
-            </select>
+            <>
+              <select
+                className="scene-select"
+                value={selectedSceneId ?? ''}
+                onChange={e => {
+                  const value = e.target.value;
+                  if (value === 'new') {
+                    setIsCreatingScene(true);
+                  } else if (value === '') {
+                    setSelectedSceneId(null);
+                  } else {
+                    setSelectedSceneId(Number(value));
+                  }
+                }}
+              >
+                {scenes.length === 0 ? (
+                  <option value="">Select a scene...</option>
+                ) : (
+                  <>
+                    {scenes.map(scene => (
+                      <option key={scene.id} value={scene.id}>
+                        {`${scene.name} (ID: ${scene.id})`}
+                      </option>
+                    ))}
+                  </>
+                )}
+                <option value="new">&lt;new...&gt;</option>
+              </select>
+              <button
+                title="Manage scenes"
+                onClick={() => setIsSceneManagementModalOpen(true)}
+                className="scene-management-button"
+              >
+                ...
+              </button>
+            </>
           )}
         </div>
         <div className="objects-box">
@@ -443,12 +476,9 @@ function App() {
             <div
               key={shape.dbObject.name + idx}
               className={`object-line${shape.state === 'Selected' || shape.state === 'SuggestedSelected' ? ' object-line-selected' : ''}`}
-              style={{
-                display: 'flex', alignItems: 'center', padding: '6px 8px', border: '1px solid #eee', borderRadius: 6, marginBottom: 6, background: (shape.state === 'Selected' || shape.state === 'SuggestedSelected') ? '#e3f0ff' : '#fff', cursor: 'pointer'
-              }}
               onClick={() => selectShape(shape)}
             >
-              <span style={{ marginRight: 10 }}>{shape.getIcon()}</span>
+              <span className="object-icon">{shape.getIcon()}</span>
               <span
                 className="object-description"
                 title={shape.getDescription()}
@@ -457,7 +487,16 @@ function App() {
               </span>
               {shape.dbObject.object_type === ObjectType.Locus && (
                 <button
-                  className={`plot-toggle-button ${displayedPlotNames.has(shape.dbObject.name) ? 'plot-toggle-on' : 'plot-toggle-off'}`}
+                  className="plot-toggle-button"
+                  style={{
+                    backgroundColor: displayedPlotNames.has(shape.dbObject.name)
+                      ? PLOT_COLORS[getLocusOrdinal(shape.dbObject.name)]
+                      : '#f5f5f5',
+                    color: displayedPlotNames.has(shape.dbObject.name) ? 'white' : '#666',
+                    borderColor: displayedPlotNames.has(shape.dbObject.name)
+                      ? PLOT_COLORS[getLocusOrdinal(shape.dbObject.name)]
+                      : '#ddd'
+                  }}
                   title={displayedPlotNames.has(shape.dbObject.name) ? 'Hide plot' : 'Show plot'}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -489,6 +528,30 @@ function App() {
         onSubmit={handleInvariantSubmit}
         onCancel={unsetAction}
         visible={currentAction?.name === ActionType.Invariant}
+      />
+      <SceneManagementModal
+        isOpen={isSceneManagementModalOpen}
+        onClose={() => setIsSceneManagementModalOpen(false)}
+        onSceneDeleted={async () => {
+          // Refresh scenes and get the updated list
+          const response = await fetch('http://localhost:8080/scenes');
+          const updatedScenes: SceneInfo[] = await response.json();
+          setScenes(updatedScenes);
+
+          // Check if the currently selected scene still exists
+          const currentSceneExists = updatedScenes.find(s => s.id === selectedSceneId);
+
+          if (!currentSceneExists) {
+            // Current scene was deleted, select the last available scene
+            if (updatedScenes.length > 0) {
+              const newSelectedId = updatedScenes[updatedScenes.length - 1].id;
+              setSelectedSceneId(newSelectedId);
+            } else {
+              // No scenes left, clear selection
+              setSelectedSceneId(null);
+            }
+          }
+        }}
       />
     </div>
   );

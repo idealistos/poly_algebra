@@ -1,0 +1,135 @@
+.scene-management-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.scene-management-modal-content {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    min-width: 500px;
+    max-width: 80vw;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.scene-management-modal-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.scene-management-error-message {
+    color: #dc3545;
+    margin-bottom: 10px;
+    padding: 8px;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+}
+
+.scene-management-loading {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+}
+
+.scene-management-list-header {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    font-weight: bold;
+    background-color: #f8f9fa;
+}
+
+.scene-management-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+}
+
+.scene-management-item {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid #f0f0f0;
+    align-items: center;
+    transition: background-color 0.2s;
+}
+
+.scene-management-item:hover {
+    background-color: #f8f9fa;
+}
+
+.scene-management-item:last-child {
+    border-bottom: none;
+}
+
+.scene-management-checkbox {
+    margin: 0;
+    cursor: pointer;
+}
+
+.scene-management-buttons {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.scene-management-delete-button {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.scene-management-delete-button:hover:not(:disabled) {
+    background-color: #c82333;
+}
+
+.scene-management-delete-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.scene-management-close-button {
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.scene-management-close-button:hover:not(:disabled) {
+    background-color: #5a6268;
+}
+
+.scene-management-close-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}

@@ -1,5 +1,5 @@
 use actix_web::{delete, get, post, web, HttpResponse, Responder};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use log::info;
 use sea_orm::ActiveValue::NotSet;
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ async fn get_actions() -> impl Responder {
                     ObjectType::FreePoint.to_string(),
                 ],
             }],
-            description: "Fixed point: a point with fixed coordinates".to_string(),
+            description: "Fixed point: a point with constant integer coordinates".to_string(),
             allowed_names: letters_a_to_k,
         },
         Action {
@@ -109,7 +109,7 @@ async fn get_actions() -> impl Responder {
                     ObjectType::FreePoint.to_string(),
                 ],
             }],
-            description: "Free point: its initial position, constrained by future invariants"
+            description: "Free point: the initial position of a point subject to future constraints"
                 .to_string(),
             allowed_names: letters_x_to_z_then_t_to_w,
         },
@@ -130,7 +130,7 @@ async fn get_actions() -> impl Responder {
                     exclusive_object_types: vec![],
                 },
             ],
-            description: "Midpoint: the point between two given points".to_string(),
+            description: "Midpoint: the point halfway between two given points".to_string(),
             allowed_names: ('A'..='K')
                 .map(|c| ("midpoint".to_string() + &c.to_string()))
                 .collect(),
@@ -143,7 +143,7 @@ async fn get_actions() -> impl Responder {
                 hint: "Select a point common to two lines".to_string(),
                 exclusive_object_types: vec![ObjectType::IntersectionPoint.to_string()],
             }],
-            description: "Intersection point: the point common to two lines".to_string(),
+            description: "Intersection point: the point where two lines meet".to_string(),
             allowed_names: ('A'..='K')
                 .map(|c| ("x".to_string() + &c.to_string()))
                 .collect(),
@@ -161,7 +161,7 @@ async fn get_actions() -> impl Responder {
                     ObjectType::IntersectionPoint.to_string(),
                 ],
             }],
-            description: "Sliding point: a point constrained to a line".to_string(),
+            description: "Sliding point: the initial position of a point constrained to a line".to_string(),
             allowed_names: ('A'..='K')
                 .map(|c| ("point".to_string() + &c.to_string()))
                 .collect(),
@@ -181,7 +181,7 @@ async fn get_actions() -> impl Responder {
                     exclusive_object_types: vec![],
                 },
             ],
-            description: "Line: a line given by two points".to_string(),
+            description: "Line: a line passing through two given points".to_string(),
             allowed_names: ('A'..='K')
                 .map(|c| ("line".to_string() + &c.to_string()))
                 .collect(),
@@ -190,7 +190,7 @@ async fn get_actions() -> impl Responder {
             name: "Parameter".to_string(),
             object_type: ObjectType::Parameter.to_string(),
             arguments: vec![],
-            description: "Parameter: a free variable with 0 initial value, to use in invariants"
+            description: "Parameter: a free variable with 0 initial value, to use in an Invariant"
                 .to_string(),
             allowed_names: ('t'..='w').map(|c| c.to_string()).collect(),
         },
@@ -203,7 +203,7 @@ async fn get_actions() -> impl Responder {
                 exclusive_object_types: vec![],
             }],
             description:
-                "Invariant: a relation involving free and fixed points and constraining free points"
+                "Invariant: a relation of the form F(object1, object2,..) = C that constrains defined objects (free points, etc.). C is the initial value of the expression."
                     .to_string(),
             allowed_names: ('A'..='K')
                 .map(|c| ("inv".to_string() + &c.to_string()))
@@ -217,7 +217,7 @@ async fn get_actions() -> impl Responder {
                 hint: "Select an already defined mobile (i.e., not fixed) point".to_string(),
                 exclusive_object_types: vec![ObjectType::Locus.to_string()],
             }],
-            description: "Locus: a curve that is the set of points that satisfy a given condition"
+            description: "Locus: pick a point to display the curve (all positions of that point satisfying the constraints)"
                 .to_string(),
             allowed_names: ('A'..='K')
                 .map(|c| ("locus".to_string() + &c.to_string()))
@@ -288,6 +288,18 @@ async fn delete_object(
     match data.load_scene(&scene_id).await {
         SceneOrError::Scene(mut scene) => match scene.delete_object(&data.db, &object_name).await {
             Ok(dependencies) => HttpResponse::Ok().json(dependencies),
+            Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
+        },
+        SceneOrError::Error(response) => response,
+    }
+}
+
+#[delete("/scenes/{scene_id}")]
+async fn delete_scene(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let scene_id = path.into_inner();
+    match data.load_scene(&scene_id).await {
+        SceneOrError::Scene(mut scene) => match scene.delete_scene(&data.db).await {
+            Ok(()) => HttpResponse::Ok().finish(),
             Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
         },
         SceneOrError::Error(response) => response,
@@ -412,6 +424,7 @@ async fn create_scene(
 pub struct SceneInfo {
     pub id: i32,
     pub name: String,
+    created_at: DateTime<Utc>,
 }
 
 #[get("/scenes")]
@@ -426,6 +439,7 @@ async fn get_scenes(data: web::Data<AppState>) -> impl Responder {
         .map(|s| SceneInfo {
             id: s.id,
             name: s.name,
+            created_at: s.created_at,
         })
         .collect();
     HttpResponse::Ok().json(scene_infos)
@@ -436,6 +450,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(get_scene)
         .service(add_object)
         .service(delete_object)
+        .service(delete_scene)
         .service(get_dependents)
         .service(get_plot)
         .service(create_scene)

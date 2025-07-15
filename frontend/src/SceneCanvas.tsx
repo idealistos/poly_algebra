@@ -367,8 +367,11 @@ function SceneCanvas(
   }, [shapes, setShapes]);
 
   useEffect(() => {
+    console.log(`SceneCanvas: sceneId changed to ${sceneId}`);
     if (sceneId !== null) {
+      console.log(`SceneCanvas: fetching objects for scene ${sceneId}`);
       fetchDBObjects(sceneId).then(sceneResponse => {
+        console.log(`SceneCanvas: received ${sceneResponse.objects.length} objects for scene ${sceneId}`);
         setShapes(sceneResponse.objects
           .reduce((acc, obj) => {
             const shape = createShapeForDBObject(obj, acc, -1);
@@ -376,7 +379,12 @@ function SceneCanvas(
             return acc;
           }, [] as Shape[]));
         setCanvasProperties(toCanvasProperties(sceneResponse.view));
+      }).catch(err => {
+        console.error(`SceneCanvas: failed to fetch objects for scene ${sceneId}:`, err);
       });
+    } else {
+      console.log(`SceneCanvas: sceneId is null, clearing shapes`);
+      setShapes([]);
     }
   }, [sceneId, setShapes, currentActionStep]);
 
@@ -745,6 +753,7 @@ function SceneCanvas(
       <CanvasPointLayer
         plotPointsByLocusName={plotPointsByLocusName}
         displayedPlotNames={displayedPlotNames}
+        shapes={shapes}
       />
     </Stage>
   );
