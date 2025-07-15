@@ -24,10 +24,10 @@ The application consists of a Rust backend that handles algebraic computations a
 
    ```bash
    # Initialize the database (first time only)
-   cargo run -- -i
+   cargo run -- init
 
    # Start the web server
-   cargo run -- -s
+   cargo run -- start
    ```
 
 2. **Start the Frontend**:
@@ -69,10 +69,10 @@ The [Lemniscate of Bernoulli](https://en.wikipedia.org/wiki/Lemniscate_of_Bernou
   - Install via [rustup.rs](https://rustup.rs/)
   - Handles polynomial operations, equation solving, and database management
 
-- **Pari/GP (gp.exe)**: For advanced algebraic computations
+- **Pari/GP**: For advanced algebraic computations
   - Download from [pari.math.u-bordeaux.fr](https://pari.math.u-bordeaux.fr/)
   - Used for complex polynomial elimination and algebraic operations
-  - Ensure `gp.exe` is in your system PATH
+  - The application will automatically detect `gp` or `gp.exe` in your system PATH
 
 ### Installation Steps
 
@@ -99,7 +99,7 @@ The [Lemniscate of Bernoulli](https://en.wikipedia.org/wiki/Lemniscate_of_Bernou
 
 4. **Initialize the Database**:
    ```bash
-   cargo run -- -i
+   cargo run -- init
    ```
 
 ### Running the Application
@@ -107,7 +107,7 @@ The [Lemniscate of Bernoulli](https://en.wikipedia.org/wiki/Lemniscate_of_Bernou
 1. **Start the Backend Server**:
 
    ```bash
-   cargo run -- -s
+   cargo run -- start
    ```
 
    The backend will start on `http://localhost:8080`
@@ -124,6 +124,21 @@ The [Lemniscate of Bernoulli](https://en.wikipedia.org/wiki/Lemniscate_of_Bernou
 3. **Access the Application**:
    Open your browser and navigate to `http://localhost:5174`
 
+### Command Line Options
+
+The backend supports several command line options:
+
+```bash
+# Show help
+cargo run -- --help
+cargo run -- init --help
+cargo run -- start --help
+
+# Specify custom Pari/GP executable path
+cargo run -- start --gp-executable /usr/local/bin/gp
+cargo run -- start --gp-executable "C:\Program Files\Pari\gp.exe"
+```
+
 ### Development
 
 - **Backend Development**: The Rust backend uses Actix-web for the API server and Sea-ORM for database management
@@ -134,6 +149,8 @@ The [Lemniscate of Bernoulli](https://en.wikipedia.org/wiki/Lemniscate_of_Bernou
 ### Troubleshooting
 
 - **Port Conflicts**: Ensure ports 8080 (backend) and 5174 (frontend) are available
-- **Pari/GP Issues**: Verify `gp.exe` is accessible from command line
-- **Database Issues**: Delete `scenes.db` and re-run `cargo run -- -i` to reset
+- **Pari/GP Issues**:
+  - Verify `gp` or `gp.exe` is accessible from command line
+  - Use `--gp-executable` to specify custom path if auto-detection fails
+- **Database Issues**: Delete `scenes.db` and re-run `cargo run -- init` to reset
 - **Frontend Build Issues**: Clear `node_modules` and re-run `npm install`

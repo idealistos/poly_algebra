@@ -10,17 +10,97 @@ mod service;
 mod x_poly;
 
 use chrono::Utc;
+use clap::{Parser, Subcommand};
 use log::info;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use sea_orm::{Database, DatabaseConnection, Statement};
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use crate::db::SceneActiveModel;
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
+
+// Global variable to store the Pari/GP executable path
+static mut PARI_EXECUTABLE_PATH: Option<String> = None;
+
+#[derive(Parser)]
+#[command(name = "poly_algebra")]
+#[command(about = "A program for eliminating variables from multivariate polynomials")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+
+    /// Specify Pari/GP executable path
+    #[arg(long, value_name = "PATH")]
+    gp_executable: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Initialize database
+    Init,
+    /// Start web server
+    Start,
+}
+
+/// Get the Pari/GP executable path, resolving it from command line arguments or system PATH
+pub fn get_pari_executable_path() -> Result<String, String> {
+    // Check if we have a cached path
+    unsafe {
+        if let Some(ref path) = PARI_EXECUTABLE_PATH {
+            return Ok(path.clone());
+        }
+    }
+
+    // Get the CLI arguments
+    let cli = Cli::parse();
+
+    // Check if --gp-executable was provided
+    if let Some(path) = cli.gp_executable {
+        // Validate that the executable exists
+        if Path::new(&path).exists() {
+            unsafe {
+                PARI_EXECUTABLE_PATH = Some(path.clone());
+            }
+            return Ok(path);
+        } else {
+            return Err(format!("Pari/GP executable not found at: {}", path));
+        }
+    }
+
+    // If no explicit path provided, try to find gp executable in system PATH
+    let gp_names = if cfg!(target_os = "windows") {
+        vec!["gp.exe", "gp"]
+    } else {
+        vec!["gp", "gp.exe"]
+    };
+
+    for name in gp_names {
+        match Command::new(name).arg("--version").output() {
+            Ok(_) => {
+                let path = name.to_string();
+                unsafe {
+                    PARI_EXECUTABLE_PATH = Some(path.clone());
+                }
+                return Ok(path);
+            }
+            Err(_) => continue,
+        }
+    }
+
+    Err("Pari/GP executable not found. Please install Pari/GP or specify the path with --gp-executable".to_string())
+}
+
+/// Set the Pari/GP executable path (for testing or manual override)
+pub fn set_pari_executable_path(path: String) {
+    unsafe {
+        PARI_EXECUTABLE_PATH = Some(path);
+    }
+}
 
 async fn init_database() -> Result<DatabaseConnection, Box<dyn std::error::Error>> {
     // Database file path
@@ -66,17 +146,19 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     info!("Starting server...");
 
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Usage: {} <command>", args[0]);
-        println!("Commands:");
-        println!("  -i    Initialize database");
-        println!("  -s    Start web server");
-        return Ok(());
+    let cli = Cli::parse();
+
+    // Initialize Pari/GP executable path
+    match get_pari_executable_path() {
+        Ok(path) => info!("Using Pari/GP executable: {}", path),
+        Err(e) => {
+            eprintln!("Warning: {}", e);
+            eprintln!("Pari/GP functionality will be limited");
+        }
     }
 
-    match args[1].as_str() {
-        "-i" => {
+    match cli.command {
+        Commands::Init => {
             let db = init_database().await.unwrap();
             let scene = SceneActiveModel {
                 id: Set(1),
@@ -91,7 +173,7 @@ async fn main() -> std::io::Result<()> {
             }
             return Ok(());
         }
-        "-s" => {
+        Commands::Start => {
             let db = Database::connect("sqlite://scenes.db?mode=rwc")
                 .await
                 .unwrap();
@@ -112,9 +194,6 @@ async fn main() -> std::io::Result<()> {
             .bind(("127.0.0.1", 8080))?
             .run()
             .await?;
-        }
-        _ => {
-            println!("Unknown command: {}", args[1]);
         }
     }
 

@@ -1,8 +1,26 @@
+use crate::poly::{Poly, PolyConversion};
+use log::info;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::poly::{Poly, PolyConversion};
-use log::info;
+// Cross-platform function to kill a process by ID
+fn kill_process_by_id(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: use taskkill command
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Unix-like systems (Linux, macOS): use kill command
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .output();
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum SingleOutResult {
@@ -289,7 +307,9 @@ impl PolyOperations for Poly {
     }
 
     fn factor(&self) -> Result<Vec<Poly>, String> {
-        const PARI_PATH: &str = r"C:\progs\pari\gp.exe";
+        // Get the Pari/GP executable path from main.rs
+        let pari_path = crate::get_pari_executable_path()
+            .map_err(|e| format!("Failed to get Pari/GP executable path: {}", e))?;
 
         // Create the Pari/GP factoring task
         let poly_str = format!("{}", self);
@@ -299,16 +319,15 @@ impl PolyOperations for Poly {
         );
 
         // Execute gp.exe -q from the specified folder
-        let mut child = std::process::Command::new(PARI_PATH)
+        let mut child = std::process::Command::new(&pari_path)
             .arg("-q")
             .arg("-s")
             .arg("128000000")
-            .current_dir(r"C:\progs\pari\")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| format!("Failed to spawn gp.exe: {}", e))?;
+            .map_err(|e| format!("Failed to spawn {}: {}", pari_path, e))?;
 
         let child_id = child.id();
 
@@ -317,7 +336,7 @@ impl PolyOperations for Poly {
             use std::io::Write;
             stdin
                 .write_all(pari_task.as_bytes())
-                .map_err(|e| format!("Failed to write to gp.exe stdin: {}", e))?;
+                .map_err(|e| format!("Failed to write to {} stdin: {}", pari_path, e))?;
         }
 
         // Wait for output with timeout
@@ -332,13 +351,11 @@ impl PolyOperations for Poly {
         let output = match rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Ok(output)) => output,
             Ok(Err(e)) => {
-                return Err(format!("Failed to get output from gp.exe: {}", e));
+                return Err(format!("Failed to get output from {}: {}", pari_path, e));
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Timeout occurred - kill the child process
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/PID", &child_id.to_string(), "/F"])
-                    .output();
+                // Timeout occurred - kill the child process using cross-platform method
+                kill_process_by_id(child_id);
                 info!("Pari/GP call takes too long, returning original polynomial");
                 return Ok(vec![self.clone()]);
             }
@@ -349,17 +366,17 @@ impl PolyOperations for Poly {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("gp.exe failed: {}", stderr));
+            return Err(format!("{} failed: {}", pari_path, stderr));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = stdout.lines().collect();
 
         if lines.len() < 2 {
-            println!("gp.exe output: {}", stdout);
+            println!("{} output: {}", pari_path, stdout);
             return Err(format!(
-                "Expected at least 2 lines of output from gp.exe. Output: {}",
-                stdout
+                "Expected at least 2 lines of output from {}. Output: {}",
+                pari_path, stdout
             ));
         }
 
@@ -486,7 +503,11 @@ impl Poly {
 
 #[cfg(test)]
 mod tests {
+    use crate::set_pari_executable_path;
+
     use super::*;
+
+    const GP_PATH: &str = r"C:\progs\pari\gp.exe";
 
     #[test]
     fn test_scale() {
@@ -922,6 +943,7 @@ mod tests {
 
     #[test]
     fn test_factor() {
+        set_pari_executable_path(GP_PATH.to_string());
         // Test case 1: Simple polynomial that factors
         let poly = Poly::new("a^2 - b^2").unwrap();
         let factors = poly.factor().unwrap();
@@ -974,6 +996,7 @@ mod tests {
 
     #[test]
     fn test_factor_error_cases() {
+        set_pari_executable_path(GP_PATH.to_string());
         // Test case 1: Polynomial that might cause Pari/GP errors
         let poly = Poly::new("a^2 + b^2 + c^2").unwrap();
         // This might fail if Pari/GP is not available or if the polynomial is too complex
@@ -990,13 +1013,14 @@ mod tests {
             }
             Err(e) => {
                 // If it fails, the error should be descriptive
-                assert!(e.contains("gp.exe") || e.contains("Failed") || e.contains("Invalid"));
+                assert!(e.contains("Failed") || e.contains("Invalid") || e.contains("not found"));
             }
         }
     }
 
     #[test]
     fn test_factor_timeout() {
+        set_pari_executable_path(GP_PATH.to_string());
         let poly_in_pari_format = "(102*b^5 + 204*b^4 + 102*b^3)*a^12 + ((102*c + 102)*b^5 + (102*c^2 + 102*c + 612)*b^4 + (102*c^2 + 714)*b^3 + 204*b^2)*a^11 + ((204*c + 204)*b^3 + (204*c^2 + 1020)*b^2)*a^10 + (34*b^6 + 68*b^5 + (117*c + 34)*b^4 + 234*c*b^3 + 117*c*b^2)*a^9 + (15*b^8 + 30*b^7 + (34*c + 49)*b^6 + (34*c^2 + 34*c + 204)*b^5 + (151*c^2 + 117*c + 238)*b^4 + (117*c^3 + 117*c^2 + 702*c + 68)*b^3 + (117*c^3 + 819*c)*b^2 + 234*c*b)*a^8 + ((15*c + 15)*b^8 + (15*c^2 + 15*c + 90)*b^7 + (15*c^2 + 105)*b^6 + 30*b^5 + (68*c + 68)*b^4 + (68*c^2 + 340)*b^3 + (234*c^2 + 234*c)*b^2 + (234*c^3 + 1170*c)*b)*a^7 + ((30*c + 30)*b^6 + (30*c^2 + 39*c + 150)*b^5 + 78*c*b^4 + 39*c*b^3)*a^6 + (5*b^9 + 10*b^8 + 5*b^7 + (39*c^2 + 39*c)*b^5 + (39*c^3 + 39*c^2 + 234*c)*b^4 + (39*c^3 + 273*c + 3)*b^3 + (78*c + 6)*b^2 + 3*b)*a^5 + ((5*c + 5)*b^9 + (5*c^2 + 5*c + 30)*b^8 + (5*c^2 + 35)*b^7 + 10*b^6 + (78*c^2 + 81*c + 3)*b^3 + (78*c^3 + 3*c^2 + 393*c + 18)*b^2 + (3*c^2 + 21)*b + 6)*a^4 + ((10*c + 10)*b^7 + (10*c^2 + 50)*b^6 + (6*c + 6)*b + (6*c^2 + 30))*a^3 + (b^4 + 2*b^3 + b^2)*a^2 + ((c + 1)*b^4 + (c^2 + c + 6)*b^3 + (c^2 + 7)*b^2 + 2*b)*a + ((2*c + 2)*b^2 + (2*c^2 + 10)*b)";
         // let poly_in_pari_format = "a^2 - b^2";
         let poly = Poly::from_poly_expression(poly_in_pari_format).unwrap();
