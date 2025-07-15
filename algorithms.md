@@ -28,18 +28,22 @@ Proceeding in this manner, one gets polynomials in $t$ for each variable of the 
 There are cases when the last expression before $z$ was eliminated had $z$ in some degree above one. An example:
 
 $$
+\begin{array}{l}
 u^2 = 25 \\
 u^2 - 2 u z + z^2 = 25 \\
 u^2 - 2 u v + v^2 - x^2 - 6x - y^2 = 9 \\
 v^2 - x^2 - y^2 + 6x = 9
+\end{array}
 $$
 
 
 The last step before all variables other than $x$ and $y$ are eliminated was
 
 $$
+\begin{array}{l}
 16z^2 - z^2 x^2 - z^2 y^2 + 36x^2 = 0 \\
 z^2 x^2 = 100x^2
+\end{array}
 $$
 
 and it contains only $z^2$, but not just $z$. However, one needs $z$ for finding $v$ from the expression
