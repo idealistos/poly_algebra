@@ -28,7 +28,7 @@
 }
 
 .scene-select {
-    width: 200px;
+    width: 265px;
     height: 32px;
     font-size: 16px;
 }
@@ -82,7 +82,7 @@
 .objects-box {
     flex: 1 1 auto;
     min-height: 0;
-    width: 260px;
+    width: 300px;
     border: 1.5px solid #bbb;
     border-radius: 8px;
     background: #fff;
@@ -221,7 +221,7 @@
 
 .scene-management-button {
     padding: 4px 8px;
-    font-size: 12px;
+    font-size: 16px;
     border: 1px solid #ccc;
     border-radius: 4px;
     background: #f8f9fa;
@@ -258,5 +258,5 @@
 }
 
 .object-icon {
-    margin-right: 10px;
+    margin-right: 16px;
 }

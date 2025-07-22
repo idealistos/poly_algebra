@@ -43,16 +43,16 @@ The application consists of a Rust backend that handles algebraic computations a
    - Navigate to `http://localhost:5174` in your browser
    - The application will load with a default scene
 
-4. **Create Your First Construction**:
+4. **Plot Your First Curve**:
 
 The [Lemniscate of Bernoulli](https://en.wikipedia.org/wiki/Lemniscate_of_Bernoulli) is defined as the set of points for which the product of distances from this point to two "foci" is constant, equal to 1/4th of the square of the distance between the foci. To plot the lemniscate:
 
 - Use the action ribbon on the left to add geometric objects:
   - Click "Fixed point" (1st action icon), then click the (-3, 0) grid point to create the point called "A"
   - Repeat this step to create the point "B" (3, 0)
-  - Click "Free point" (2nd action icon) to add the point "X" (0, 0)
-- Click "Invariant" (2nd action icon from the bottom) and enter "d(A, X) \* d(B, X)"
-- Click "Locus" and then choose the point "X" to indicate that we want to plot the set of all points satisfying the invariant for X
+  - Hover over "Fixed point" to make point actions appear, then Click "Free point" (2nd action icon in the group) to add the point "X" (0, 0)
+- Hover over "d(•,•)" icon (2nd action icon from the bottom) to make invariant actions appear, then click the "*" icon (the last one in the group) to add a custom invariant, then enter "d(A, X) \* d(B, X)"
+- Click "Locus" (the last action icon) and then choose the point "X" to indicate that we want to plot the set of all points satisfying the invariant for X
 - Wait until the curve is displayed
 
 ## Install

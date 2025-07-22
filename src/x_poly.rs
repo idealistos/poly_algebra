@@ -420,6 +420,35 @@ impl XYPoly {
         result
     }
 
+    pub fn likely_contains_zero_check_corners_and_center(
+        &self,
+        x_region: FInt,
+        y_region: FInt,
+    ) -> bool {
+        // Check all four corners of the rectangle plus its center: if all of then are positive
+        // (or all are negative), it isn't likely that there is any point in the region for which
+        // the polynomial is zero.
+        let corners = vec![
+            (x_region.lower_bound(), y_region.lower_bound()),
+            (x_region.lower_bound(), y_region.upper_bound()),
+            (x_region.upper_bound(), y_region.lower_bound()),
+            (x_region.upper_bound(), y_region.upper_bound()),
+            (x_region.midpoint(), y_region.midpoint()),
+        ];
+        let mut all_positive = true;
+        let mut all_negative = true;
+        for (x, y) in corners {
+            let value = self.evaluate(FInt::new(x), FInt::new(y));
+            if !value.always_positive() {
+                all_positive = false;
+            }
+            if !value.negate().always_positive() {
+                all_negative = false;
+            }
+        }
+        !(all_positive || all_negative)
+    }
+
     fn compute_determinant(matrix: &mut [Vec<XPoly>]) -> XPoly {
         let n = matrix.len();
         let mut sign = 1;

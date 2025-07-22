@@ -7,6 +7,42 @@ use std::fmt::Formatter;
 use std::str::FromStr;
 use thiserror::Error;
 
+// Module declarations for split files
+pub mod fixed_point;
+pub mod free_point;
+pub mod intersection_point;
+pub mod invariant;
+pub mod line_ab;
+pub mod locus;
+pub mod midpoint;
+pub mod pl_to_line;
+pub mod point_to_line_distance_invariant;
+pub mod pp_bisector;
+pub mod pp_to_line;
+pub mod projection;
+pub mod reflection;
+pub mod sliding_point;
+pub mod two_line_angle_invariant;
+pub mod two_point_distance_invariant;
+
+// Re-export the structs from the modules
+use fixed_point::FixedPoint;
+use free_point::FreePoint;
+use intersection_point::IntersectionPoint;
+use invariant::Invariant;
+use line_ab::LineAB;
+use locus::Locus;
+use midpoint::Midpoint;
+use pl_to_line::PlToLine;
+use point_to_line_distance_invariant::PointToLineDistanceInvariant;
+use pp_bisector::PpBisector;
+use pp_to_line::PpToLine;
+use projection::Projection;
+use reflection::Reflection;
+use sliding_point::SlidingPoint;
+use two_line_angle_invariant::TwoLineAngleInvariant;
+use two_point_distance_invariant::TwoPointDistanceInvariant;
+
 #[derive(Debug, Error)]
 pub enum SceneError {
     #[error("Invalid object type: {0}")]
@@ -29,11 +65,19 @@ pub enum SceneError {
 pub enum SceneObject {
     FixedPoint(FixedPoint),
     FreePoint(FreePoint),
-    SlidingPoint(SlidingPoint),
-    IntersectionPoint(IntersectionPoint),
     Midpoint(Midpoint),
+    IntersectionPoint(IntersectionPoint),
+    SlidingPoint(SlidingPoint),
+    Projection(Projection),
+    Reflection(Reflection),
     LineAB(LineAB),
+    PpBisector(PpBisector),
+    PpToLine(PpToLine),
+    PlToLine(PlToLine),
     Parameter,
+    TwoPointDistanceInvariant(TwoPointDistanceInvariant),
+    PointToLineDistanceInvariant(PointToLineDistanceInvariant),
+    TwoLineAngleInvariant(TwoLineAngleInvariant),
     Invariant(Invariant),
     Locus(Locus),
 }
@@ -43,15 +87,31 @@ impl SceneObject {
         match object_type {
             ObjectType::FixedPoint => Ok(SceneObject::FixedPoint(FixedPoint::new(properties)?)),
             ObjectType::FreePoint => Ok(SceneObject::FreePoint(FreePoint::new(properties)?)),
-            ObjectType::SlidingPoint => {
-                Ok(SceneObject::SlidingPoint(SlidingPoint::new(properties)?))
-            }
+            ObjectType::Midpoint => Ok(SceneObject::Midpoint(Midpoint::new(properties)?)),
             ObjectType::IntersectionPoint => Ok(SceneObject::IntersectionPoint(
                 IntersectionPoint::new(properties)?,
             )),
-            ObjectType::Midpoint => Ok(SceneObject::Midpoint(Midpoint::new(properties)?)),
+            ObjectType::SlidingPoint => {
+                Ok(SceneObject::SlidingPoint(SlidingPoint::new(properties)?))
+            }
             ObjectType::LineAB => Ok(SceneObject::LineAB(LineAB::new(properties)?)),
+            ObjectType::PpBisector => Ok(SceneObject::PpBisector(PpBisector::new(properties)?)),
+            ObjectType::PpToLine => Ok(SceneObject::PpToLine(PpToLine::new(properties)?)),
+            ObjectType::PlToLine => Ok(SceneObject::PlToLine(PlToLine::new(properties)?)),
+            ObjectType::Projection => Ok(SceneObject::Projection(Projection::new(properties)?)),
+            ObjectType::Reflection => Ok(SceneObject::Reflection(Reflection::new(properties)?)),
             ObjectType::Parameter => Ok(SceneObject::Parameter),
+            ObjectType::TwoPointDistanceInvariant => Ok(SceneObject::TwoPointDistanceInvariant(
+                TwoPointDistanceInvariant::new(properties)?,
+            )),
+            ObjectType::PointToLineDistanceInvariant => {
+                Ok(SceneObject::PointToLineDistanceInvariant(
+                    PointToLineDistanceInvariant::new(properties)?,
+                ))
+            }
+            ObjectType::TwoLineAngleInvariant => Ok(SceneObject::TwoLineAngleInvariant(
+                TwoLineAngleInvariant::new(properties)?,
+            )),
             ObjectType::Invariant => Ok(SceneObject::Invariant(Invariant::new(properties)?)),
             ObjectType::Locus => Ok(SceneObject::Locus(Locus::new(properties)?)),
         }
@@ -61,11 +121,21 @@ impl SceneObject {
         match self {
             SceneObject::FixedPoint(_) => ObjectType::FixedPoint,
             SceneObject::FreePoint(_) => ObjectType::FreePoint,
-            SceneObject::SlidingPoint(_) => ObjectType::SlidingPoint,
-            SceneObject::IntersectionPoint(_) => ObjectType::IntersectionPoint,
             SceneObject::Midpoint(_) => ObjectType::Midpoint,
+            SceneObject::IntersectionPoint(_) => ObjectType::IntersectionPoint,
+            SceneObject::SlidingPoint(_) => ObjectType::SlidingPoint,
             SceneObject::LineAB(_) => ObjectType::LineAB,
+            SceneObject::PpBisector(_) => ObjectType::PpBisector,
+            SceneObject::PpToLine(_) => ObjectType::PpToLine,
+            SceneObject::PlToLine(_) => ObjectType::PlToLine,
+            SceneObject::Projection(_) => ObjectType::Projection,
+            SceneObject::Reflection(_) => ObjectType::Reflection,
             SceneObject::Parameter => ObjectType::Parameter,
+            SceneObject::TwoPointDistanceInvariant(_) => ObjectType::TwoPointDistanceInvariant,
+            SceneObject::PointToLineDistanceInvariant(_) => {
+                ObjectType::PointToLineDistanceInvariant
+            }
+            SceneObject::TwoLineAngleInvariant(_) => ObjectType::TwoLineAngleInvariant,
             SceneObject::Invariant(_) => ObjectType::Invariant,
             SceneObject::Locus(_) => ObjectType::Locus,
         }
@@ -75,11 +145,19 @@ impl SceneObject {
         match self {
             SceneObject::FixedPoint(p) => p.get_properties(),
             SceneObject::FreePoint(p) => p.get_properties(),
-            SceneObject::SlidingPoint(p) => p.get_properties(),
-            SceneObject::IntersectionPoint(p) => p.get_properties(),
             SceneObject::Midpoint(m) => m.get_properties(),
+            SceneObject::IntersectionPoint(p) => p.get_properties(),
+            SceneObject::SlidingPoint(p) => p.get_properties(),
             SceneObject::LineAB(l) => l.get_properties(),
+            SceneObject::PpBisector(p) => p.get_properties(),
+            SceneObject::PpToLine(p) => p.get_properties(),
+            SceneObject::PlToLine(p) => p.get_properties(),
+            SceneObject::Projection(p) => p.get_properties(),
+            SceneObject::Reflection(p) => p.get_properties(),
             SceneObject::Parameter => Value::Null,
+            SceneObject::TwoPointDistanceInvariant(t) => t.get_properties(),
+            SceneObject::PointToLineDistanceInvariant(p) => p.get_properties(),
+            SceneObject::TwoLineAngleInvariant(t) => t.get_properties(),
             SceneObject::Invariant(i) => i.get_properties(),
             SceneObject::Locus(p) => p.get_properties(),
         }
@@ -89,11 +167,19 @@ impl SceneObject {
         match self {
             SceneObject::FixedPoint(p) => p.to_python(name),
             SceneObject::FreePoint(p) => p.to_python(name),
-            SceneObject::SlidingPoint(p) => p.to_python(name),
-            SceneObject::IntersectionPoint(p) => p.to_python(name),
             SceneObject::Midpoint(m) => m.to_python(name),
+            SceneObject::IntersectionPoint(p) => p.to_python(name),
+            SceneObject::SlidingPoint(p) => p.to_python(name),
             SceneObject::LineAB(l) => l.to_python(name),
+            SceneObject::PpBisector(p) => p.to_python(name),
+            SceneObject::PpToLine(p) => p.to_python(name),
+            SceneObject::PlToLine(p) => p.to_python(name),
+            SceneObject::Projection(p) => p.to_python(name),
+            SceneObject::Reflection(p) => p.to_python(name),
             SceneObject::Parameter => format!("{} = Value(next_var(), 0)", name),
+            SceneObject::TwoPointDistanceInvariant(t) => t.to_python(name),
+            SceneObject::PointToLineDistanceInvariant(p) => p.to_python(name),
+            SceneObject::TwoLineAngleInvariant(t) => t.to_python(name),
             SceneObject::Invariant(i) => i.to_python(name),
             SceneObject::Locus(p) => p.to_python(name),
         }
@@ -103,431 +189,22 @@ impl SceneObject {
         match self {
             SceneObject::FixedPoint(p) => p.get_dependencies(),
             SceneObject::FreePoint(p) => p.get_dependencies(),
-            SceneObject::SlidingPoint(p) => p.get_dependencies(),
-            SceneObject::IntersectionPoint(p) => p.get_dependencies(),
             SceneObject::Midpoint(m) => m.get_dependencies(),
+            SceneObject::IntersectionPoint(p) => p.get_dependencies(),
+            SceneObject::SlidingPoint(p) => p.get_dependencies(),
             SceneObject::LineAB(l) => l.get_dependencies(),
+            SceneObject::PpBisector(p) => p.get_dependencies(),
+            SceneObject::PpToLine(p) => p.get_dependencies(),
+            SceneObject::PlToLine(p) => p.get_dependencies(),
+            SceneObject::Projection(p) => p.get_dependencies(),
+            SceneObject::Reflection(p) => p.get_dependencies(),
             SceneObject::Parameter => Vec::new(),
+            SceneObject::TwoPointDistanceInvariant(t) => t.get_dependencies(),
+            SceneObject::PointToLineDistanceInvariant(p) => p.get_dependencies(),
+            SceneObject::TwoLineAngleInvariant(t) => t.get_dependencies(),
             SceneObject::Invariant(i) => i.get_dependencies(),
             SceneObject::Locus(p) => p.get_dependencies(),
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FixedPoint {
-    pub x: i64,
-    pub y: i64,
-}
-
-impl FixedPoint {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let value = properties["value"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'value' field".to_string()))?;
-
-        let coords: Vec<&str> = value.split(',').collect();
-        if coords.len() != 2 {
-            return Err(SceneError::InvalidPointFormat(value.to_string()));
-        }
-
-        let x = coords[0]
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| SceneError::InvalidPointFormat(coords[0].to_string()))?;
-        let y = coords[1]
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| SceneError::InvalidPointFormat(coords[1].to_string()))?;
-
-        Ok(FixedPoint { x, y })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "value": format!("{}, {}", self.x, self.y)
-        })
-    }
-
-    pub fn to_python(&self, name: &str) -> String {
-        format!("{} = FixedPoint({}, {})", name, self.x, self.y)
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        Vec::new()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FreePoint {
-    pub x: i64,
-    pub y: i64,
-}
-
-impl FreePoint {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let value = properties["value"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'value' field".to_string()))?;
-
-        let coords: Vec<&str> = value.split(',').collect();
-        if coords.len() != 2 {
-            return Err(SceneError::InvalidPointFormat(value.to_string()));
-        }
-
-        let x = coords[0]
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| SceneError::InvalidPointFormat(coords[0].to_string()))?;
-        let y = coords[1]
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| SceneError::InvalidPointFormat(coords[1].to_string()))?;
-
-        Ok(FreePoint { x, y })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "value": format!("{}, {}", self.x, self.y)
-        })
-    }
-
-    pub fn to_python(&self, name: &str) -> String {
-        format!("{} = FreePoint({}, {})", name, self.x, self.y)
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        Vec::new()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SlidingPoint {
-    pub x: i64,
-    pub y: i64,
-    pub constraining_object_name: String,
-}
-
-impl SlidingPoint {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let value = properties["value"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'value' field".to_string()))?;
-
-        let coords: Vec<&str> = value.split(',').collect();
-        if coords.len() != 2 {
-            return Err(SceneError::InvalidPointFormat(value.to_string()));
-        }
-
-        let x = coords[0]
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| SceneError::InvalidPointFormat(coords[0].to_string()))?;
-        let y = coords[1]
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| SceneError::InvalidPointFormat(coords[1].to_string()))?;
-
-        let constraining_object_name = properties["constraining_object_name"]
-            .as_str()
-            .ok_or_else(|| {
-                SceneError::InvalidProperties(
-                    "Missing 'constraining_object_name' field".to_string(),
-                )
-            })?
-            .to_string();
-
-        Ok(SlidingPoint {
-            x,
-            y,
-            constraining_object_name,
-        })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "value": format!("{}, {}", self.x, self.y),
-            "constraining_object_name": self.constraining_object_name,
-        })
-    }
-
-    pub fn to_python(&self, name: &str) -> String {
-        format!(
-            "{} = FreePoint({}, {})\n{}.contains({})",
-            name, self.x, self.y, self.constraining_object_name, name
-        )
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        vec![self.constraining_object_name.clone()]
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct IntersectionPoint {
-    pub object_name_1: String,
-    pub object_name_2: String,
-}
-
-impl IntersectionPoint {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let object_name_1 = properties["object_name_1"]
-            .as_str()
-            .ok_or_else(|| {
-                SceneError::InvalidProperties("Missing 'object_name_1' field".to_string())
-            })?
-            .to_string();
-        let object_name_2 = properties["object_name_2"]
-            .as_str()
-            .ok_or_else(|| {
-                SceneError::InvalidProperties("Missing 'object_name_2' field".to_string())
-            })?
-            .to_string();
-
-        Ok(IntersectionPoint {
-            object_name_1,
-            object_name_2,
-        })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "object_name_1": self.object_name_1,
-            "object_name_2": self.object_name_2
-        })
-    }
-
-    pub fn to_python(&self, name: &str) -> String {
-        let new_value = "Value(next_var(), initial=Value(next_var()))";
-        let line1 = format!("{} = Point({}, {})", name, new_value, new_value);
-        let line2 = format!("{}.contains({})", self.object_name_1, name);
-        let line3 = format!("{}.contains({})", self.object_name_2, name);
-        format!("{}\n{}\n{}", line1, line2, line3)
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        vec![self.object_name_1.clone(), self.object_name_2.clone()]
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Midpoint {
-    pub point1: String,
-    pub point2: String,
-}
-
-impl Midpoint {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let point1 = properties["point1"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'point1' field".to_string()))?
-            .to_string();
-        let point2 = properties["point2"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'point2' field".to_string()))?
-            .to_string();
-
-        Ok(Midpoint { point1, point2 })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "point1": self.point1,
-            "point2": self.point2
-        })
-    }
-
-    pub fn to_python(&self, name: &str) -> String {
-        let point1 = if self.point1.contains(',') {
-            let coords: Vec<&str> = self.point1.split(',').collect();
-            format!("FixedPoint({}, {})", coords[0].trim(), coords[1].trim())
-        } else {
-            self.point1.clone()
-        };
-
-        let point2 = if self.point2.contains(',') {
-            let coords: Vec<&str> = self.point2.split(',').collect();
-            format!("FixedPoint({}, {})", coords[0].trim(), coords[1].trim())
-        } else {
-            self.point2.clone()
-        };
-
-        let new_value = "Value(next_var(), initial=Value(next_var()))";
-        let line1 = format!("{} = Point({}, {})", name, new_value, new_value);
-        let line2 = format!(
-            "is_zero_vector(({} - {}) + ({} - {}))",
-            point1, name, point2, name
-        );
-        format!("{}\n{}", line1, line2)
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        let mut dependencies = Vec::new();
-
-        // Add point1 if it's a named point (not coordinates)
-        if !self.point1.contains(',') {
-            dependencies.push(self.point1.clone());
-        }
-
-        // Add point2 if it's a named point (not coordinates)
-        if !self.point2.contains(',') {
-            dependencies.push(self.point2.clone());
-        }
-
-        dependencies
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LineAB {
-    pub point1: String,
-    pub point2: String,
-}
-
-impl LineAB {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let point1 = properties["point1"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'point1' field".to_string()))?
-            .to_string();
-        let point2 = properties["point2"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'point2' field".to_string()))?
-            .to_string();
-
-        Ok(LineAB { point1, point2 })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "point1": self.point1,
-            "point2": self.point2
-        })
-    }
-
-    pub fn to_python(&self, name: &str) -> String {
-        let point1 = if self.point1.contains(',') {
-            let coords: Vec<&str> = self.point1.split(',').collect();
-            format!("FixedPoint({}, {})", coords[0].trim(), coords[1].trim())
-        } else {
-            self.point1.clone()
-        };
-
-        let point2 = if self.point2.contains(',') {
-            let coords: Vec<&str> = self.point2.split(',').collect();
-            format!("FixedPoint({}, {})", coords[0].trim(), coords[1].trim())
-        } else {
-            self.point2.clone()
-        };
-
-        format!("{} = LineAB({}, {})", name, point1, point2)
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        let mut dependencies = Vec::new();
-
-        // Add point1 if it's a named point (not coordinates)
-        if !self.point1.contains(',') {
-            dependencies.push(self.point1.clone());
-        }
-
-        // Add point2 if it's a named point (not coordinates)
-        if !self.point2.contains(',') {
-            dependencies.push(self.point2.clone());
-        }
-
-        dependencies
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Invariant {
-    pub formula: String,
-}
-
-impl Invariant {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let formula = properties["formula"]
-            .as_str()
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'formula' field".to_string()))?
-            .to_string();
-
-        Ok(Invariant { formula })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "formula": self.formula
-        })
-    }
-
-    pub fn to_python(&self, _name: &str) -> String {
-        let formula = self.formula.replace("^", "**");
-        // Use regex to find standalone integers and wrap them with i()
-        let re = Regex::new(r"\b\d+\b").unwrap();
-        let formula = re.replace_all(&formula, "i($0)").to_string();
-        format!("is_constant({})", formula)
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        // Built-in identifiers that should be excluded
-        let built_ins: HashSet<&str> = ["d", "d_sqr"].iter().cloned().collect();
-
-        let re = Regex::new(r"[a-zA-Z][a-zA-Z0-9_.]*").unwrap();
-
-        // Extract all identifiers from the formula
-        let mut dependencies = HashSet::new();
-
-        for capture in re.find_iter(&self.formula) {
-            let identifier = capture.as_str();
-
-            // Remove the part after the first "." symbol
-            let base_identifier = if let Some(dot_pos) = identifier.find('.') {
-                &identifier[..dot_pos]
-            } else {
-                identifier
-            };
-
-            // Exclude built-in identifiers
-            if !built_ins.contains(base_identifier) {
-                dependencies.insert(base_identifier.to_string());
-            }
-        }
-
-        dependencies.into_iter().collect()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Locus {
-    pub point: String,
-}
-
-impl Locus {
-    pub fn new(properties: Value) -> Result<Self, SceneError> {
-        let point = properties
-            .get("point")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| SceneError::InvalidProperties("Missing 'point' property".to_string()))?;
-
-        Ok(Self {
-            point: point.to_string(),
-        })
-    }
-
-    pub fn get_properties(&self) -> Value {
-        json!({
-            "point": self.point
-        })
-    }
-
-    pub fn to_python(&self, name: &str) -> String {
-        format!("plot(\"{}\", {})", name, self.point)
-    }
-
-    pub fn get_dependencies(&self) -> Vec<String> {
-        vec![self.point.clone()]
     }
 }
 
@@ -535,10 +212,18 @@ impl Locus {
 pub enum ObjectType {
     FixedPoint,
     FreePoint,
-    SlidingPoint,
     Midpoint,
     IntersectionPoint,
+    SlidingPoint,
+    Projection,
+    Reflection,
     LineAB,
+    PpBisector,
+    PpToLine,
+    PlToLine,
+    TwoPointDistanceInvariant,
+    PointToLineDistanceInvariant,
+    TwoLineAngleInvariant,
     Invariant,
     Locus,
     Parameter,
@@ -551,10 +236,18 @@ impl FromStr for ObjectType {
         match s {
             "FixedPoint" => Ok(ObjectType::FixedPoint),
             "FreePoint" => Ok(ObjectType::FreePoint),
-            "SlidingPoint" => Ok(ObjectType::SlidingPoint),
-            "IntersectionPoint" => Ok(ObjectType::IntersectionPoint),
             "Midpoint" => Ok(ObjectType::Midpoint),
+            "IntersectionPoint" => Ok(ObjectType::IntersectionPoint),
+            "SlidingPoint" => Ok(ObjectType::SlidingPoint),
+            "Projection" => Ok(ObjectType::Projection),
+            "Reflection" => Ok(ObjectType::Reflection),
             "LineAB" => Ok(ObjectType::LineAB),
+            "PpBisector" => Ok(ObjectType::PpBisector),
+            "PpToLine" => Ok(ObjectType::PpToLine),
+            "PlToLine" => Ok(ObjectType::PlToLine),
+            "TwoPointDistanceInvariant" => Ok(ObjectType::TwoPointDistanceInvariant),
+            "PointToLineDistanceInvariant" => Ok(ObjectType::PointToLineDistanceInvariant),
+            "TwoLineAngleInvariant" => Ok(ObjectType::TwoLineAngleInvariant),
             "Invariant" => Ok(ObjectType::Invariant),
             "Locus" => Ok(ObjectType::Locus),
             "Parameter" => Ok(ObjectType::Parameter),
@@ -568,10 +261,18 @@ impl Display for ObjectType {
         let string_value = match self {
             ObjectType::FixedPoint => "FixedPoint".to_string(),
             ObjectType::FreePoint => "FreePoint".to_string(),
-            ObjectType::SlidingPoint => "SlidingPoint".to_string(),
-            ObjectType::IntersectionPoint => "IntersectionPoint".to_string(),
             ObjectType::Midpoint => "Midpoint".to_string(),
+            ObjectType::IntersectionPoint => "IntersectionPoint".to_string(),
+            ObjectType::SlidingPoint => "SlidingPoint".to_string(),
+            ObjectType::Projection => "Projection".to_string(),
+            ObjectType::Reflection => "Reflection".to_string(),
             ObjectType::LineAB => "LineAB".to_string(),
+            ObjectType::PpBisector => "PpBisector".to_string(),
+            ObjectType::PpToLine => "PpToLine".to_string(),
+            ObjectType::PlToLine => "PlToLine".to_string(),
+            ObjectType::TwoPointDistanceInvariant => "TwoPointDistanceInvariant".to_string(),
+            ObjectType::PointToLineDistanceInvariant => "PointToLineDistanceInvariant".to_string(),
+            ObjectType::TwoLineAngleInvariant => "TwoLineAngleInvariant".to_string(),
             ObjectType::Invariant => "Invariant".to_string(),
             ObjectType::Locus => "Locus".to_string(),
             ObjectType::Parameter => "Parameter".to_string(),
@@ -583,107 +284,6 @@ impl Display for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_fixed_point() {
-        let props = json!({
-            "value": "10, 20"
-        });
-        let point = FixedPoint::new(props).unwrap();
-        assert_eq!(point.x, 10);
-        assert_eq!(point.y, 20);
-        assert_eq!(
-            point.get_properties(),
-            json!({
-                "value": "10, 20"
-            })
-        );
-    }
-
-    #[test]
-    fn test_free_point() {
-        let props = json!({
-            "value": "30, 40"
-        });
-        let point = FreePoint::new(props).unwrap();
-        assert_eq!(point.x, 30);
-        assert_eq!(point.y, 40);
-        assert_eq!(
-            point.get_properties(),
-            json!({
-                "value": "30, 40"
-            })
-        );
-    }
-
-    #[test]
-    fn test_sliding_point() {
-        let props = json!({
-            "value": "5,0",
-            "constraining_object_name": "L1",
-        });
-        let point = SlidingPoint::new(props).unwrap();
-        assert_eq!(point.x, 5);
-        assert_eq!(point.y, 0);
-        assert_eq!(
-            point.get_properties(),
-            json!({
-                "value": "5, 0",
-                "constraining_object_name": "L1",
-            })
-        );
-    }
-
-    #[test]
-    fn test_intersection_point() {
-        let props = json!({
-            "object_name_1": "L1",
-            "object_name_2": "C1"
-        });
-        let point = IntersectionPoint::new(props).unwrap();
-        assert_eq!(point.object_name_1, "L1");
-        assert_eq!(point.object_name_2, "C1");
-        assert_eq!(
-            point.get_properties(),
-            json!({
-                "object_name_1": "L1",
-                "object_name_2": "C1"
-            })
-        );
-    }
-
-    #[test]
-    fn test_line_ab() {
-        let props = json!({
-            "point1": "P1",
-            "point2": "P2"
-        });
-        let line = LineAB::new(props).unwrap();
-        assert_eq!(line.point1, "P1");
-        assert_eq!(line.point2, "P2");
-        assert_eq!(
-            line.get_properties(),
-            json!({
-                "point1": "P1",
-                "point2": "P2"
-            })
-        );
-    }
-
-    #[test]
-    fn test_invariant() {
-        let props = json!({
-            "formula": "d(A, B)"
-        });
-        let inv = Invariant::new(props).unwrap();
-        assert_eq!(inv.formula, "d(A, B)");
-        assert_eq!(
-            inv.get_properties(),
-            json!({
-                "formula": "d(A, B)"
-            })
-        );
-    }
 
     #[test]
     fn test_scene_object_conversion() {
@@ -727,6 +327,28 @@ mod tests {
         let obj = SceneObject::from_properties(ObjectType::Invariant, props.clone()).unwrap();
         assert!(matches!(obj, SceneObject::Invariant(_)));
         assert_eq!(obj.get_type(), ObjectType::Invariant);
+        assert_eq!(obj.get_properties(), props);
+
+        let props = json!({
+            "point1": "P1",
+            "point2": "P2"
+        });
+        let obj =
+            SceneObject::from_properties(ObjectType::TwoPointDistanceInvariant, props.clone())
+                .unwrap();
+        assert!(matches!(obj, SceneObject::TwoPointDistanceInvariant(_)));
+        assert_eq!(obj.get_type(), ObjectType::TwoPointDistanceInvariant);
+        assert_eq!(obj.get_properties(), props);
+
+        let props = json!({
+            "point": "P1",
+            "line": "L1"
+        });
+        let obj =
+            SceneObject::from_properties(ObjectType::PointToLineDistanceInvariant, props.clone())
+                .unwrap();
+        assert!(matches!(obj, SceneObject::PointToLineDistanceInvariant(_)));
+        assert_eq!(obj.get_type(), ObjectType::PointToLineDistanceInvariant);
         assert_eq!(obj.get_properties(), props);
 
         let props = json!({
@@ -782,6 +404,27 @@ mod tests {
             formula: "d(A, B)".to_string(),
         };
         assert_eq!(inv.to_python("I1"), "is_constant(d(A, B))");
+
+        let two_point_inv = TwoPointDistanceInvariant {
+            point1: "P1".to_string(),
+            point2: "P2".to_string(),
+        };
+        assert_eq!(two_point_inv.to_python("I2"), "is_constant(d(P1, P2))");
+
+        let point_to_line_inv = PointToLineDistanceInvariant {
+            point: "P1".to_string(),
+            line: "L1".to_string(),
+        };
+        assert_eq!(point_to_line_inv.to_python("I3"), "is_constant(d(P1, L1))");
+
+        let two_line_angle_inv = TwoLineAngleInvariant {
+            line1: "L1".to_string(),
+            line2: "L2".to_string(),
+        };
+        assert_eq!(
+            two_line_angle_inv.to_python("I4"),
+            "is_constant(cot(L1.n, L2.n).abs())"
+        );
 
         // Test through SceneObject
         let obj = SceneObject::FixedPoint(fixed);
@@ -1012,5 +655,83 @@ mod tests {
 
         let obj = SceneObject::Midpoint(midpoint);
         assert_eq!(obj.get_dependencies(), Vec::<String>::new());
+
+        // Test TwoPointDistanceInvariant with named points
+        let two_point_inv = TwoPointDistanceInvariant {
+            point1: "P1".to_string(),
+            point2: "P2".to_string(),
+        };
+        let mut expected = vec!["P1".to_string(), "P2".to_string()];
+        expected.sort();
+        let mut actual = two_point_inv.get_dependencies();
+        actual.sort();
+        assert_eq!(actual, expected);
+
+        let obj = SceneObject::TwoPointDistanceInvariant(two_point_inv);
+        let mut actual = obj.get_dependencies();
+        actual.sort();
+        assert_eq!(actual, expected);
+
+        // Test TwoPointDistanceInvariant with mixed named and coordinate points
+        let two_point_inv = TwoPointDistanceInvariant {
+            point1: "P1".to_string(),
+            point2: "10, 20".to_string(),
+        };
+        assert_eq!(two_point_inv.get_dependencies(), vec!["P1".to_string()]);
+
+        let obj = SceneObject::TwoPointDistanceInvariant(two_point_inv);
+        assert_eq!(obj.get_dependencies(), vec!["P1".to_string()]);
+
+        // Test TwoPointDistanceInvariant with coordinate points only
+        let two_point_inv = TwoPointDistanceInvariant {
+            point1: "10, 20".to_string(),
+            point2: "30, 40".to_string(),
+        };
+        assert_eq!(two_point_inv.get_dependencies(), Vec::<String>::new());
+
+        let obj = SceneObject::TwoPointDistanceInvariant(two_point_inv);
+        assert_eq!(obj.get_dependencies(), Vec::<String>::new());
+
+        // Test PointToLineDistanceInvariant with named points
+        let point_to_line_inv = PointToLineDistanceInvariant {
+            point: "P1".to_string(),
+            line: "L1".to_string(),
+        };
+        let mut expected = vec!["P1".to_string(), "L1".to_string()];
+        expected.sort();
+        let mut actual = point_to_line_inv.get_dependencies();
+        actual.sort();
+        assert_eq!(actual, expected);
+
+        let obj = SceneObject::PointToLineDistanceInvariant(point_to_line_inv);
+        let mut actual = obj.get_dependencies();
+        actual.sort();
+        assert_eq!(actual, expected);
+
+        // Test PointToLineDistanceInvariant with coordinate points only
+        let point_to_line_inv = PointToLineDistanceInvariant {
+            point: "10, 20".to_string(),
+            line: "L1".to_string(),
+        };
+        assert_eq!(point_to_line_inv.get_dependencies(), vec!["L1".to_string()]);
+
+        let obj = SceneObject::PointToLineDistanceInvariant(point_to_line_inv);
+        assert_eq!(obj.get_dependencies(), vec!["L1".to_string()]);
+
+        // Test TwoLineAngleInvariant with named lines
+        let two_line_angle_inv = TwoLineAngleInvariant {
+            line1: "L1".to_string(),
+            line2: "L2".to_string(),
+        };
+        let mut expected = vec!["L1".to_string(), "L2".to_string()];
+        expected.sort();
+        let mut actual = two_line_angle_inv.get_dependencies();
+        actual.sort();
+        assert_eq!(actual, expected);
+
+        let obj = SceneObject::TwoLineAngleInvariant(two_line_angle_inv);
+        let mut actual = obj.get_dependencies();
+        actual.sort();
+        assert_eq!(actual, expected);
     }
 }

@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { Stage, Layer, Line, Circle, Text } from 'react-konva';
-import { ShapeState, ObjectType, ArgumentType, getPointDBProperties, getOccupiedPoints } from './enums';
+import { ShapeState, ObjectType, ArgumentType, getPointDBProperties, getOccupiedPoints, MOBILE_POINT_OBJECT_TYPES } from './enums';
 import CanvasPointLayer from './CanvasPointLayer';
-import type { Shape, CanvasProperties, Action, PlotPointElement, ObjectProperties, PartialDBObject, DBObject } from './types';
+import type { Shape, CanvasProperties, Action, ObjectProperties, PartialDBObject, DBObject, PlotData, TwoPointDistanceInvariantProperties, PointToLineDistanceInvariantProperties } from './types';
 import type { Vector2d } from 'konva/lib/types';
-import { createShapeForDBObject } from './utils';
-import { LineABShape } from './shapes/LineABShape';
+import { checkLineAlreadyChosen, createShapeForDBObject, getDBPropertiesForLine } from './utils';
 import { IntersectionPointShape } from './shapes/IntersectionPointShape';
+import { LineBasedShape } from './shapes/LineBasedShape';
 
 
 
@@ -55,8 +55,8 @@ interface SceneCanvasProps {
   setShapes: React.Dispatch<React.SetStateAction<Shape[]>>;
   displayedPlotNames: Set<string>;
   setStatusMessage: (message: string | null) => void;
-  plotPointsByLocusName: Record<string, PlotPointElement[][]>;
-  setPlotPointsByLocusName: React.Dispatch<React.SetStateAction<Record<string, PlotPointElement[][]>>>;
+  plotDataByLocusName: Record<string, PlotData>;
+  setPlotDataByLocusName: React.Dispatch<React.SetStateAction<Record<string, PlotData>>>;
   fetchPlotPoints: (locusName: string) => Promise<void>;
 }
 
@@ -103,13 +103,16 @@ function getClosestDefinedPoint(
 function getMatchingObjectTypes(argType: ArgumentType): ObjectType[] {
   switch (argType) {
     case ArgumentType.MobilePoint:
-      return [ObjectType.FreePoint, ObjectType.Midpoint, ObjectType.IntersectionPoint, ObjectType.SlidingPoint];
+      return MOBILE_POINT_OBJECT_TYPES;
     case ArgumentType.AnyDefinedPoint:
-      return [ObjectType.FreePoint, ObjectType.FixedPoint, ObjectType.Midpoint, ObjectType.IntersectionPoint, ObjectType.SlidingPoint];
+    case ArgumentType.AnyDefinedOrGridPoint:
+      return [...MOBILE_POINT_OBJECT_TYPES, ObjectType.FixedPoint];
     case ArgumentType.IntersectionPoint:
-      return [ObjectType.LineAB];
+      return [ObjectType.LineAB, ObjectType.PpBisector];
     case ArgumentType.SlidingPoint:
-      return [ObjectType.FreePoint, ObjectType.FixedPoint, ObjectType.Midpoint, ObjectType.IntersectionPoint];
+      return [...MOBILE_POINT_OBJECT_TYPES, ObjectType.FixedPoint];
+    case ArgumentType.Line:
+      return [ObjectType.LineAB, ObjectType.PpBisector];
     case ArgumentType.GridPoint:
       return [];
     default:
@@ -123,8 +126,8 @@ function getMatchingObjectTypes(argType: ArgumentType): ObjectType[] {
 function getTwoClosestLines(
   shapes: Shape[],
   logicalPoint: Vector2d
-): { shape: LineABShape; distance: number }[] | null {
-  const lineShapes = shapes.filter(shape => shape instanceof LineABShape) as LineABShape[];
+): { shape: LineBasedShape; distance: number }[] | null {
+  const lineShapes = shapes.filter(shape => shape instanceof LineBasedShape) as LineBasedShape[];
 
   if (lineShapes.length < 2) {
     return null;
@@ -145,8 +148,8 @@ function getTwoClosestLines(
 function getClosestLine(
   shapes: Shape[],
   logicalPoint: Vector2d
-): { shape: LineABShape; distance: number } | null {
-  const lineShapes = shapes.filter(shape => shape instanceof LineABShape) as LineABShape[];
+): { shape: LineBasedShape; distance: number } | null {
+  const lineShapes = shapes.filter(shape => shape instanceof LineBasedShape) as LineBasedShape[];
 
   if (lineShapes.length === 0) {
     console.log("No lines found");
@@ -166,13 +169,86 @@ function getClosestLine(
   return linesWithDistances[0];
 }
 
+function getPointArgumentValue(
+  logicalPoint: Vector2d,
+  argumentTypeIndex: number,
+  action: Action,
+  actionStep: number,
+  shapes: Shape[],
+  isOccupied: (point: Vector2d) => boolean,
+): { dbProperties: Partial<ObjectProperties>, shapesToHighlight: string[], objectType: ObjectType } | null {
+  const objectType = (actionStep == action.arguments.length - 1) ?
+    action.object_types[argumentTypeIndex] : action.object_types[0];
+
+  // Helper function to check grid point
+  const checkGridPoint = () => {
+    const gridX = Math.round(logicalPoint.x);
+    const gridY = Math.round(logicalPoint.y);
+    const dist = Math.sqrt(
+      Math.pow(logicalPoint.x - gridX, 2) + Math.pow(logicalPoint.y - gridY, 2)
+    );
+    if (dist < 0.15 && !isOccupied({ x: gridX, y: gridY })) {
+      return {
+        dbProperties: getPointDBProperties(objectType, { x: gridX, y: gridY }, actionStep),
+        shapesToHighlight: [],
+        objectType,
+      };
+    }
+    return null;
+  };
+
+  // Helper function to check defined point
+  const checkDefinedPoint = (objectTypes: ObjectType[]) => {
+    const { shape: closest, minDist } = getClosestDefinedPoint(objectTypes, shapes, logicalPoint, isOccupied);
+    if (closest && minDist < 0.15) {
+      const definedPoint = closest.getDefinedPoint()!;
+      if (!isOccupied(definedPoint)) {
+        return {
+          dbProperties: getPointDBProperties(objectType, closest.dbObject.name, actionStep),
+          shapesToHighlight: [closest.dbObject.name],
+          objectType,
+        };
+      }
+    }
+    return null;
+  };
+
+  const argType = action.arguments[actionStep].types[argumentTypeIndex];
+  switch (argType) {
+    case ArgumentType.GridPoint: {
+      return checkGridPoint();
+    }
+    case ArgumentType.MobilePoint:
+    case ArgumentType.AnyDefinedPoint: {
+      const objectTypes = getMatchingObjectTypes(argType);
+      return checkDefinedPoint(objectTypes);
+    }
+    case ArgumentType.AnyDefinedOrGridPoint: {
+      // First try to find a defined point
+      const objectTypes = getMatchingObjectTypes(ArgumentType.AnyDefinedPoint);
+      const definedResult = checkDefinedPoint(objectTypes);
+      if (definedResult) {
+        return definedResult;
+      }
+
+      // If no defined point found, try grid point
+      return checkGridPoint();
+    }
+    case ArgumentType.Line: {
+      // Line argument type is handled in the main switch statement
+      return null;
+    }
+  }
+  return null;
+}
+
 function getArgumentValueForCoordinates(
   logicalPoint: Vector2d,
   action: Action,
   actionStep: number,
   dbObjectForNextStep: PartialDBObject | null,
   shapes: Shape[],
-): { lastPoint: Vector2d, dbProperties: Partial<ObjectProperties>, shapesToHighlight: string[] } | null {
+): { dbProperties: Partial<ObjectProperties>, shapesToHighlight: string[], objectType: ObjectType } | null {
   const argument = action.arguments[actionStep];
   const pointsOccupiedByPartialObject = dbObjectForNextStep ? getOccupiedPoints(dbObjectForNextStep) : [];
   const isOccupied = (point: Vector2d) => shapes.some(
@@ -185,72 +261,46 @@ function getArgumentValueForCoordinates(
       return false;
     }
   ) || pointsOccupiedByPartialObject.some(p => p.x === point.x && p.y === point.y);
-  for (const argType of argument?.types ?? []) {
+  for (const [index, argType] of argument?.types?.entries() ?? []) {
+    // Handle point-related argument types
+    if (argType === ArgumentType.GridPoint ||
+      argType === ArgumentType.MobilePoint ||
+      argType === ArgumentType.AnyDefinedPoint ||
+      argType === ArgumentType.AnyDefinedOrGridPoint) {
+      const result = getPointArgumentValue(logicalPoint, index, action, actionStep, shapes, isOccupied);
+      if (result) {
+        result.objectType = action.object_types[index];
+        return result;
+      }
+      continue;
+    }
     switch (argType) {
-      case ArgumentType.GridPoint: {
-        const gridX = Math.round(logicalPoint.x);
-        const gridY = Math.round(logicalPoint.y);
-        const dist = Math.sqrt(
-          Math.pow(logicalPoint.x - gridX, 2) + Math.pow(logicalPoint.y - gridY, 2)
-        );
-        if (dist < 0.15 && !isOccupied({ x: gridX, y: gridY })) {
-          return {
-            lastPoint: { x: gridX, y: gridY },
-            dbProperties: getPointDBProperties(action.object_type, { x: gridX, y: gridY }, actionStep),
-            shapesToHighlight: [],
-          };
-        }
-        break;
-      }
-      case ArgumentType.MobilePoint:
-      case ArgumentType.AnyDefinedPoint: {
-        const objectTypes = getMatchingObjectTypes(argType);
-        const { shape: closest, minDist } = getClosestDefinedPoint(objectTypes, shapes, logicalPoint, isOccupied);
-        if (closest && minDist < 0.15) {
-          const definedPoint = closest.getDefinedPoint()!;
-          if (!isOccupied(definedPoint)) {
-            return {
-              lastPoint: definedPoint,
-              dbProperties: getPointDBProperties(action.object_type, closest.dbObject.name, actionStep),
-              shapesToHighlight: [closest.dbObject.name],
-            };
-          }
-        }
-        break;
-      }
       case ArgumentType.IntersectionPoint: {
         const twoClosestLines = getTwoClosestLines(shapes, logicalPoint);
+        console.log('twoClosestLines', twoClosestLines);
         if (!twoClosestLines) {
           break;
         }
-
         const [line1, line2] = twoClosestLines;
-
-        // Check if distance to any line is above 0.15
         if (line1.distance > 0.15 || line2.distance > 0.15) {
           break;
         }
-
-        // Find intersection point
         const intersectionPoint = line1.shape.intersect(line2.shape);
         if (!intersectionPoint || isOccupied(intersectionPoint)) {
           break;
         }
-
-        // Check if distance between logicalPoint and intersection point is below 0.25
         const distToIntersection = Math.sqrt(
           Math.pow(logicalPoint.x - intersectionPoint.x, 2) +
           Math.pow(logicalPoint.y - intersectionPoint.y, 2)
         );
-
         if (distToIntersection < 0.25) {
           return {
-            lastPoint: intersectionPoint,
             dbProperties: {
               object_name_1: line1.shape.dbObject.name,
               object_name_2: line2.shape.dbObject.name,
             },
             shapesToHighlight: [line1.shape.dbObject.name, line2.shape.dbObject.name],
+            objectType: ObjectType.IntersectionPoint,
           };
         }
         break;
@@ -261,24 +311,35 @@ function getArgumentValueForCoordinates(
         const dist = Math.sqrt(
           Math.pow(logicalPoint.x - gridX, 2) + Math.pow(logicalPoint.y - gridY, 2)
         );
-        console.log("Sliding point, isOccupied:", isOccupied({ x: gridX, y: gridY }), dist);
         if (dist > 0.15 || isOccupied({ x: gridX, y: gridY })) {
           return null;
         }
         const closestLine = getClosestLine(shapes, logicalPoint);
-        console.log(closestLine?.distance);
         if (!closestLine || closestLine.distance > 0.15) {
           return null;
         }
         return {
-          lastPoint: { x: gridX, y: gridY },
           dbProperties: {
             constraining_object_name: closestLine.shape.dbObject.name,
             value: `${gridX},${gridY}`,
           },
           shapesToHighlight: [closestLine.shape.dbObject.name],
+          objectType: ObjectType.SlidingPoint,
         }
-        break;
+      }
+      case ArgumentType.Line: {
+        const closestLine = getClosestLine(shapes, logicalPoint);
+        if (!closestLine || closestLine.distance > 0.15) {
+          return null;
+        }
+        if (actionStep === 1 && dbObjectForNextStep && checkLineAlreadyChosen(dbObjectForNextStep, closestLine.shape)) {
+          return null;
+        }
+        return {
+          dbProperties: getDBPropertiesForLine(closestLine.shape, action.object_types[index], actionStep),
+          shapesToHighlight: [closestLine.shape.dbObject.name],
+          objectType: action.object_types[index],
+        };
       }
       default: {
         const exhaustiveCheck: never = argType;
@@ -287,6 +348,15 @@ function getArgumentValueForCoordinates(
     }
   }
   return null;
+}
+
+function convertDBObject(dbObject: PartialDBObject, newObjectType: ObjectType): PartialDBObject {
+  if (newObjectType === ObjectType.PointToLineDistanceInvariant && dbObject.object_type === ObjectType.TwoPointDistanceInvariant) {
+    (dbObject.properties as Partial<PointToLineDistanceInvariantProperties>).point = (dbObject.properties as Partial<TwoPointDistanceInvariantProperties>).point1;
+    delete (dbObject.properties as Partial<TwoPointDistanceInvariantProperties>).point1;
+  }
+  dbObject.object_type = newObjectType;
+  return dbObject;
 }
 
 function SceneCanvas(
@@ -301,8 +371,8 @@ function SceneCanvas(
     setShapes,
     displayedPlotNames,
     setStatusMessage,
-    plotPointsByLocusName,
-    setPlotPointsByLocusName,
+    plotDataByLocusName,
+    setPlotDataByLocusName,
     fetchPlotPoints,
   }: SceneCanvasProps) {
   const [canvasProperties, setCanvasProperties] = useState<CanvasProperties | null>(null);
@@ -388,28 +458,28 @@ function SceneCanvas(
     }
   }, [sceneId, setShapes, currentActionStep]);
 
-  // Clean up plotPointsByLocusName when Locus objects are removed
+  // Clean up plotDataByLocusName when Locus objects are removed
   useEffect(() => {
-    setPlotPointsByLocusName(prev => {
+    setPlotDataByLocusName(prev => {
       const currentLocusNames = new Set(
         shapes
           .filter(shape => shape.dbObject.object_type === ObjectType.Locus)
           .map(shape => shape.dbObject.name)
       );
 
-      const newPlotPoints = { ...prev };
+      const newPlotData = { ...prev };
       let hasChanges = false;
 
-      for (const locusName in newPlotPoints) {
+      for (const locusName in newPlotData) {
         if (!currentLocusNames.has(locusName)) {
-          delete newPlotPoints[locusName];
+          delete newPlotData[locusName];
           hasChanges = true;
         }
       }
 
-      return hasChanges ? newPlotPoints : prev;
+      return hasChanges ? newPlotData : prev;
     });
-  }, [shapes, setPlotPointsByLocusName]);
+  }, [shapes, setPlotDataByLocusName]);
 
   // Compute stagedShapeName if needed
   useEffect(() => {
@@ -442,7 +512,7 @@ function SceneCanvas(
           // Create the shape immediately
           const dbObject = {
             name: found,
-            object_type: currentAction.object_type!,
+            object_type: currentAction.object_types[0]!,
             properties: null,
           };
           const newShape = createShapeForDBObject(dbObject, shapes, currentActionStep);
@@ -581,22 +651,27 @@ function SceneCanvas(
         // Handle staged object
         if (objectHint) setObjectHint(null);
         setStagedObject(prevStaged => {
-          const objectType = currentAction!.object_type;
+          const objectType = argValue.objectType;
           const name = stagedShapeName || 'staged';
           if (prevStaged && !dbObjectForNextStep) {
-            prevStaged.points[currentActionStep] = argValue.lastPoint;
+            prevStaged.dbObject.object_type = objectType;
             prevStaged.dbObject.properties = { ...prevStaged.dbObject.properties, ...argValue.dbProperties } as ObjectProperties;
+            console.log('prevStaged', prevStaged.dbObject);
             return prevStaged.clone();
           }
           let dbObject;
           if (dbObjectForNextStep) {
+            console.log('dbObjectForNextStep', dbObjectForNextStep);
             dbObject = { ...dbObjectForNextStep };
             dbObject.properties = { ...dbObject.properties, ...argValue.dbProperties } as ObjectProperties;
+            if (objectType !== dbObject.object_type) {
+              dbObject = convertDBObject(dbObject, objectType);
+            }
           } else {
             dbObject = { name, object_type: objectType, properties: argValue.dbProperties as ObjectProperties };
           }
+          console.log('staged', dbObject);
           const stagedObject = createShapeForDBObject(dbObject, shapes, currentActionStep);
-          stagedObject.points[currentActionStep] = argValue.lastPoint;
           stagedObject.state = ShapeState.BeingAdded;
           return stagedObject;
         });
@@ -607,7 +682,7 @@ function SceneCanvas(
         // Handle object hint
         if (stagedObject) setStagedObject(null);
         setObjectHint(prevHint => {
-          const objectType = currentAction!.object_type;
+          const objectType = currentAction!.object_types[0];
           const name = stagedShapeName || 'hint';
           if (prevHint) {
             prevHint.points[currentActionStep] = logicalCoords;
@@ -751,7 +826,7 @@ function SceneCanvas(
         {objectHint && objectHint.getCanvasShape(canvasProperties!)}
       </Layer>
       <CanvasPointLayer
-        plotPointsByLocusName={plotPointsByLocusName}
+        plotDataByLocusName={plotDataByLocusName}
         displayedPlotNames={displayedPlotNames}
         shapes={shapes}
       />

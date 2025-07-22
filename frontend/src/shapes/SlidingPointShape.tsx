@@ -5,7 +5,7 @@ import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
 import { BaseShape } from './BaseShape';
 import { CanvasSlidingPoint } from './CanvasComponents';
-import { LineABShape } from './LineABShape';
+import { LineBasedShape } from './LineBasedShape';
 
 export class SlidingPointShape extends BaseShape {
     public lineDirection: Vector2d;
@@ -42,20 +42,11 @@ export class SlidingPointShape extends BaseShape {
                 throw new Error(`SlidingPoint ${dbObject.name}: Could not find line shape ${objectName}`);
             }
 
-            if (!(lineShape instanceof LineABShape)) {
+            if (!(lineShape instanceof LineBasedShape)) {
                 throw new Error(`SlidingPoint ${dbObject.name}: Shape ${objectName} must be a LineAB shape`);
             }
-
-            // Compute direction: (line.points[1].x - line.points[0].x, line.points[1].y - line.points[0].y)
-            if (lineShape.points.length >= 2) {
-                this.lineDirection = {
-                    x: lineShape.points[1].x - lineShape.points[0].x,
-                    y: lineShape.points[1].y - lineShape.points[0].y
-                };
-            } else {
-                // Fallback to horizontal if line doesn't have enough points
-                this.lineDirection = { x: 1, y: 0 };
-            }
+            const lineDef = lineShape.getDefinedLine();
+            this.lineDirection = lineDef == null ? { x: 1, y: 0 } : { x: lineDef.n.y, y: -lineDef.n.x };
         } else {
             // Default to horizontal direction if no line name
             this.lineDirection = { x: 1, y: 0 };

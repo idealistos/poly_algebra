@@ -91,6 +91,11 @@ class Value:
             lambda a, b: f"{a}^{power} - {b}", lambda a: a ** power.initial_as_int()
         )
 
+    def abs(self) -> "Value":
+        return self.integer_valued_operation(
+            lambda a, b: f"{a}^2 - {b}^2", lambda a: abs(a)
+        )
+
     # Valid combinations:
     # - constant + constant -> constant
     # - constant + unknown -> unknown (with equation)
@@ -190,6 +195,9 @@ class Point:
     def __sub__(self, other: "Point") -> "Vector":
         return Vector(self.x - other.x, self.y - other.y)
 
+    def __add__(self, other: "Vector") -> "Point":
+        return Point(self.x + other.x, self.y + other.y)
+
 
 class FixedPoint(Point):
     def __init__(self, x: int, y: int):
@@ -199,6 +207,22 @@ class FixedPoint(Point):
 class FreePoint(Point):
     def __init__(self, x: int, y: int):
         super().__init__(Value(next_var(), initial=x), Value(next_var(), initial=y))
+
+
+class Projection(Point):
+    def __init__(self, point: Point, line: "Line"):
+        # proj = a - n ((a - p) * n) / (n * n) (p = point, (a, n) = line)
+        factor = (point - line.o) * line.n / line.n.length_sqr()
+        projection_vector = Vector(point.x, point.y) - line.n * factor
+        super().__init__(projection_vector.x, projection_vector.y)
+
+
+class Reflection(Point):
+    def __init__(self, point: Point, line: "Line"):
+        # reflection = a - 2 n ((a - p) * n) / (n * n) (p = point, (a, n) = line)
+        factor = i(2) * ((point - line.o) * line.n) / line.n.length_sqr()
+        reflection_vector = Vector(point.x, point.y) - line.n * factor
+        super().__init__(reflection_vector.x, reflection_vector.y)
 
 
 class Vector:
@@ -237,6 +261,9 @@ class Vector:
             return Vector(self.x * other, self.y * other)
         return self.x * other.x + self.y * other.y
 
+    def __truediv__(self, other: Value) -> "Vector":
+        return self * (i(1) / other)
+
 
 class FixedVector(Vector):
     def __init__(self, x: int, y: int):
@@ -256,7 +283,8 @@ class Line:
     def contains(self, p: Point):
         v = (p - self.o) * self.n
         equations.append(f"{v}")
-        equations.append(f"{v.initial}")
+        if v.initial is not None:
+            equations.append(f"{v.initial}")
 
     def distance_to_point_sqr(self, p: Point) -> Value:
         return ((p - self.o) * self.n) ** i(2) / self.n.length_sqr()
@@ -268,6 +296,21 @@ class Line:
 class LineAB(Line):
     def __init__(self, a: Point, b: Point):
         super().__init__(a, (b - a).rotated90())
+
+
+class PpBisector(Line):
+    def __init__(self, a: Point, b: Point):
+        super().__init__(a + (b - a) / i(2), b - a)
+
+
+class PpToLine(Line):
+    def __init__(self, point: Point, line: Line):
+        super().__init__(point, line.n.rotated90())
+
+
+class PlToLine(Line):
+    def __init__(self, point: Point, line: Line):
+        super().__init__(point, line.n)
 
 
 def d(a: Point | Line, b: Point | Line) -> Value:
@@ -288,6 +331,10 @@ def d_sqr(a: Point | Line, b: Point | Line) -> Value:
     if isinstance(a, Point) and isinstance(b, Point):
         return (a.x - b.x) ** i(2) + (a.y - b.y) ** i(2)
     raise Exception("d() cannot be called with two lines")
+
+
+def cot(a: Vector, b: Vector) -> Value:
+    return (a * b) / (a.x * b.y - a.y * b.x)
 
 
 def is_constant(x: Value):

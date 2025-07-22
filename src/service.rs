@@ -25,10 +25,11 @@ pub struct Argument {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Action {
     pub name: String,
-    pub object_type: String,
+    pub object_types: Vec<String>,
     pub arguments: Vec<Argument>,
     pub description: String,
     pub allowed_names: Vec<String>,
+    pub group: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,6 +50,13 @@ pub struct PlotPoint {
     pub x: u32,
     pub y: u32,
     pub color: Color,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlotResponse {
+    pub points: Vec<(u32, u32, Color)>,
+    pub equation: String,
+    pub formatted_equations: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -86,71 +94,77 @@ async fn get_actions() -> impl Responder {
     let actions = vec![
         Action {
             name: "FixedPoint".to_string(),
-            object_type: ObjectType::FixedPoint.to_string(),
+            object_types: vec![ObjectType::FixedPoint.to_string()],
             arguments: vec![Argument {
                 types: vec!["GridPoint".to_string()],
                 hint: "Select a point on the grid".to_string(),
                 exclusive_object_types: vec![
                     ObjectType::FixedPoint.to_string(),
                     ObjectType::FreePoint.to_string(),
+                    ObjectType::Midpoint.to_string(),
+                    ObjectType::SlidingPoint.to_string(),
+                    ObjectType::IntersectionPoint.to_string(),
                 ],
             }],
             description: "Fixed point: a point with constant integer coordinates".to_string(),
             allowed_names: letters_a_to_k,
+            group: "Points".to_string(),
         },
         Action {
             name: "FreePoint".to_string(),
-            object_type: ObjectType::FreePoint.to_string(),
+            object_types: vec![ObjectType::FreePoint.to_string()],
             arguments: vec![Argument {
                 types: vec!["GridPoint".to_string()],
                 hint: "Select a point on the grid".to_string(),
                 exclusive_object_types: vec![
                     ObjectType::FixedPoint.to_string(),
                     ObjectType::FreePoint.to_string(),
+                    ObjectType::Midpoint.to_string(),
+                    ObjectType::SlidingPoint.to_string(),
+                    ObjectType::IntersectionPoint.to_string(),
                 ],
             }],
             description: "Free point: the initial position of a point subject to future constraints"
                 .to_string(),
-            allowed_names: letters_x_to_z_then_t_to_w,
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
         },
         Action {
             name: "Midpoint".to_string(),
-            object_type: ObjectType::Midpoint.to_string(),
+            object_types: vec![ObjectType::Midpoint.to_string()],
             arguments: vec![
                 Argument {
-                    types: vec!["AnyDefinedPoint".to_string(), "GridPoint".to_string()],
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
                     hint: "Select an already defined point or a point on the grid (1 of 2)"
                         .to_string(),
                     exclusive_object_types: vec![],
                 },
                 Argument {
-                    types: vec!["AnyDefinedPoint".to_string(), "GridPoint".to_string()],
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
                     hint: "Select an already defined point or a point on the grid (2 of 2)"
                         .to_string(),
                     exclusive_object_types: vec![],
                 },
             ],
             description: "Midpoint: the point halfway between two given points".to_string(),
-            allowed_names: ('A'..='K')
-                .map(|c| ("midpoint".to_string() + &c.to_string()))
-                .collect(),
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
         },
         Action {
             name: "IntersectionPoint".to_string(),
-            object_type: ObjectType::IntersectionPoint.to_string(),
+            object_types: vec![ObjectType::IntersectionPoint.to_string()],
             arguments: vec![Argument {
                 types: vec!["IntersectionPoint".to_string()],
                 hint: "Select a point common to two lines".to_string(),
                 exclusive_object_types: vec![ObjectType::IntersectionPoint.to_string()],
             }],
             description: "Intersection point: the point where two lines meet".to_string(),
-            allowed_names: ('A'..='K')
-                .map(|c| ("x".to_string() + &c.to_string()))
-                .collect(),
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
         },
         Action {
             name: "SlidingPoint".to_string(),
-            object_type: ObjectType::SlidingPoint.to_string(),
+            object_types: vec![ObjectType::SlidingPoint.to_string()],
             arguments: vec![Argument {
                 types: vec!["SlidingPoint".to_string()],
                 hint: "Select a point on a line".to_string(),
@@ -162,22 +176,63 @@ async fn get_actions() -> impl Responder {
                 ],
             }],
             description: "Sliding point: the initial position of a point constrained to a line".to_string(),
-            allowed_names: ('A'..='K')
-                .map(|c| ("point".to_string() + &c.to_string()))
-                .collect(),
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
+        },
+        Action {
+            name: "Projection".to_string(),
+            object_types: vec![
+                ObjectType::Projection.to_string(),
+            ],
+            arguments: vec![Argument {
+                types: vec!["AnyDefinedOrGridPoint".to_string()],
+                hint: "Select the point to be projected (an already defined point or a point on the grid) (1 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            },
+            Argument {
+                types: vec!["Line".to_string()],
+                hint: "Select the line to be projected onto (2 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            }],
+            description:
+                "Projection: the point on a line that is the perpendicular projection of a given point onto the line"
+                    .to_string(),
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
+        },
+        Action {
+            name: "Reflection".to_string(),
+            object_types: vec![
+                ObjectType::Reflection.to_string(),
+            ],
+            arguments: vec![Argument {
+                types: vec!["AnyDefinedOrGridPoint".to_string()],
+                hint: "Select the point to be reflected (an already defined point or a point on the grid) (1 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            },
+            Argument {
+                types: vec!["Line".to_string()],
+                hint: "Select the line to be reflected across (2 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            }],
+            description:
+                "Reflection: the point on the other side of a line that is the reflection of a given point across the line"
+                    .to_string(),
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
         },
         Action {
             name: "LineAB".to_string(),
-            object_type: ObjectType::LineAB.to_string(),
+            object_types: vec![ObjectType::LineAB.to_string()],
             arguments: vec![
                 Argument {
-                    types: vec!["AnyDefinedPoint".to_string(), "GridPoint".to_string()],
-                    hint: "Select a point on the grid (1 of 2)".to_string(),
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Select an already defined point or a point on the grid (1 of 2)".to_string(),
                     exclusive_object_types: vec![],
                 },
                 Argument {
-                    types: vec!["AnyDefinedPoint".to_string(), "GridPoint".to_string()],
-                    hint: "Select a point on the grid (2 of 2)".to_string(),
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Select an already defined point or a point on the grid (2 of 2)".to_string(),
                     exclusive_object_types: vec![],
                 },
             ],
@@ -185,33 +240,152 @@ async fn get_actions() -> impl Responder {
             allowed_names: ('A'..='K')
                 .map(|c| ("line".to_string() + &c.to_string()))
                 .collect(),
+            group: "Lines".to_string(),
+        },
+        Action {
+            name: "PpBisector".to_string(),
+            object_types: vec![ObjectType::PpBisector.to_string()],
+            arguments: vec![
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Select an already defined point or a point on the grid (1 of 2)"
+                        .to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Select an already defined point or a point on the grid (2 of 2)"
+                        .to_string(),
+                    exclusive_object_types: vec![],
+                },
+            ],
+            description: "Perpendicular bisector: the line consisting of points equidistant to two given points".to_string(),
+            allowed_names: ('A'..='K')
+                .map(|c| ("line".to_string() + &c.to_string()))
+                .collect(),
+            group: "Lines".to_string(),
+        },
+        Action {
+            name: "PpToLine".to_string(),
+            object_types: vec![
+                ObjectType::PpToLine.to_string(),
+            ],
+            arguments: vec![Argument {
+                types: vec!["AnyDefinedOrGridPoint".to_string()],
+                hint: "Select an already defined point or a point on the grid (1 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            },
+            Argument {
+                types: vec!["Line".to_string()],
+                hint: "Select a line (2 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            }],
+            description:
+                "Perpendicular to a line: a line through the given point perpendicular to the given line"
+                    .to_string(),
+            allowed_names: ('A'..='K')
+                .map(|c| ("line".to_string() + &c.to_string()))
+                .collect(),
+            group: "Lines".to_string(),
+        },
+        Action {
+            name: "PlToLine".to_string(),
+            object_types: vec![
+                ObjectType::PlToLine.to_string(),
+            ],
+            arguments: vec![Argument {
+                types: vec!["AnyDefinedOrGridPoint".to_string()],
+                hint: "Select an already defined point or a point on the grid (1 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            },
+            Argument {
+                types: vec!["Line".to_string()],
+                hint: "Select a line (2 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            }],
+            description:
+                "Parallel to a line: a line through the given point parallel to the given line"
+                    .to_string(),
+            allowed_names: ('A'..='K')
+                .map(|c| ("line".to_string() + &c.to_string()))
+                .collect(),
+            group: "Lines".to_string(),
         },
         Action {
             name: "Parameter".to_string(),
-            object_type: ObjectType::Parameter.to_string(),
+            object_types: vec![ObjectType::Parameter.to_string()],
             arguments: vec![],
             description: "Parameter: a free variable with 0 initial value, to use in an Invariant"
                 .to_string(),
             allowed_names: ('t'..='w').map(|c| c.to_string()).collect(),
+            group: "Parameters".to_string(),
+        },
+        Action {
+            name: "DistanceInvariant".to_string(),
+            object_types: vec![
+                ObjectType::TwoPointDistanceInvariant.to_string(),
+                ObjectType::PointToLineDistanceInvariant.to_string(),
+            ],
+            arguments: vec![Argument {
+                types: vec!["AnyDefinedOrGridPoint".to_string()],
+                hint: "Select an already defined point or a point on the grid (1 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            },
+            Argument {
+                types: vec!["AnyDefinedOrGridPoint".to_string(), "Line".to_string()],
+                hint: "Select an already defined point or a point on the grid, or a line (2 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            }],
+            description:
+                "Distance Invariant: specifies that the distance from a point to another point or line is constant"
+                    .to_string(),
+            allowed_names: ('A'..='K')
+                .map(|c| ("inv".to_string() + &c.to_string()))
+                .collect(),
+            group: "Constraints".to_string(),
+        },
+        Action {
+            name: "AngleInvariant".to_string(),
+            object_types: vec![
+                ObjectType::TwoLineAngleInvariant.to_string(),
+            ],
+            arguments: vec![Argument {
+                types: vec!["Line".to_string()],
+                hint: "Select a line (1 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            },
+            Argument {
+                types: vec!["Line".to_string()],
+                hint: "Select a line (2 of 2)".to_string(),
+                exclusive_object_types: vec![],
+            }],
+            description:
+                "Angle Invariant: specifies that the angle between two lines is constant"
+                    .to_string(),
+            allowed_names: ('A'..='K')
+                .map(|c| ("inv".to_string() + &c.to_string()))
+                .collect(),
+            group: "Constraints".to_string(),
         },
         Action {
             name: "Invariant".to_string(),
-            object_type: ObjectType::Invariant.to_string(),
+            object_types: vec![ObjectType::Invariant.to_string()],
             arguments: vec![Argument {
                 types: vec![],
                 hint: "Enter the formula for the invariant, e.g., d(A, X)".to_string(),
                 exclusive_object_types: vec![],
             }],
             description:
-                "Invariant: a relation of the form F(object1, object2,..) = C that constrains defined objects (free points, etc.). C is the initial value of the expression."
+                "Custom invariant: a relation of the form F(object1, object2,..) = C that constrains defined objects (free points, etc.). C is the initial value of the expression."
                     .to_string(),
             allowed_names: ('A'..='K')
                 .map(|c| ("inv".to_string() + &c.to_string()))
                 .collect(),
+            group: "Constraints".to_string(),
         },
         Action {
             name: "Locus".to_string(),
-            object_type: ObjectType::Locus.to_string(),
+            object_types: vec![ObjectType::Locus.to_string()],
             arguments: vec![Argument {
                 types: vec!["MobilePoint".to_string()],
                 hint: "Select an already defined mobile (i.e., not fixed) point".to_string(),
@@ -222,6 +396,7 @@ async fn get_actions() -> impl Responder {
             allowed_names: ('A'..='K')
                 .map(|c| ("locus".to_string() + &c.to_string()))
                 .collect(),
+            group: "Locus".to_string(),
         },
     ];
 
@@ -343,7 +518,14 @@ async fn get_plot(
         SceneOrError::Scene(scene) => {
             if let Some(SceneObject::Locus(_locus)) = scene.objects.get(&locus_name) {
                 match scene.solve_and_plot(&locus_name, width, height) {
-                    Ok(points) => HttpResponse::Ok().json(points),
+                    Ok(plot_data) => {
+                        let response = PlotResponse {
+                            points: plot_data.points,
+                            equation: plot_data.equation,
+                            formatted_equations: plot_data.formatted_equations,
+                        };
+                        HttpResponse::Ok().json(response)
+                    }
                     Err(e) => {
                         info!(
                             "Failed to solve for locus {}: {}",

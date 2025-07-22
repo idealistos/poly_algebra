@@ -5,7 +5,7 @@ import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
 import { BaseShape } from './BaseShape';
 import { CanvasIntersectionPoint } from './CanvasComponents';
-import { LineABShape } from './LineABShape';
+import { LineBasedShape } from './LineBasedShape';
 
 export class IntersectionPointShape extends BaseShape {
     constructor(dbObject: PartialDBObject, shapes: Shape[]) {
@@ -33,8 +33,8 @@ export class IntersectionPointShape extends BaseShape {
             throw new Error(`IntersectionPoint ${dbObject.name}: Could not find shapes ${objectName1} and/or ${objectName2}`);
         }
 
-        if (!(shape1 instanceof LineABShape) || !(shape2 instanceof LineABShape)) {
-            throw new Error(`IntersectionPoint ${dbObject.name}: Shapes ${objectName1} and ${objectName2} must be LineAB shapes`);
+        if (!(shape1 instanceof LineBasedShape) || !(shape2 instanceof LineBasedShape)) {
+            throw new Error(`IntersectionPoint ${dbObject.name}: Shapes ${objectName1} and ${objectName2} must be line-based shapes`);
         }
 
         // Calculate intersection point
@@ -55,19 +55,10 @@ export class IntersectionPointShape extends BaseShape {
         const properties = this.dbObject.properties as Partial<IntersectionPointProperties>;
         const object1 = properties.object_name_1 ?? 'undefined';
         const object2 = properties.object_name_2 ?? 'undefined';
-        return `${this.dbObject.name} (${object1}, ${object2})`;
+        return `${this.dbObject.name} (${object1} × ${object2})`;
     }
 
     getDefinedPoint(): Vector2d | null {
-        const properties = this.dbObject.properties as Partial<IntersectionPointProperties>;
-        const objectName1 = properties.object_name_1;
-        const objectName2 = properties.object_name_2;
-
-        // Verify that object names are non-null
-        if (!objectName1 || !objectName2) {
-            return null;
-        }
-
         // If we already have the intersection point calculated, return it
         if (this.points.length > 0) {
             return this.points[0];

@@ -2,10 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import SceneCanvas from './SceneCanvas';
 import { ActionRibbon } from './ActionRibbon';
 import { ActionType, ObjectType, ShapeState } from './enums';
-import type { Action, Shape, PlotPointElement } from './types';
+import type { Action, Shape, PlotData } from './types';
 import './App.css';
 import { createShapeForDBObject, PLOT_COLORS } from './utils';
 import { SceneManagementModal } from './SceneManagementModal';
+import { ConfirmationModal } from './ConfirmationModal';
+import Legend from './Legend';
+import type { LocusShape } from './shapes/LocusShape';
 
 function InvariantModal({
   mousePos,
@@ -56,7 +59,14 @@ async function deleteShape(
   setShapes: React.Dispatch<React.SetStateAction<Shape[]>>,
   sceneId: number,
   setStatusMessage: (message: string | null) => void,
-  setDisplayedPlotNames?: React.Dispatch<React.SetStateAction<Set<string>>>
+  setDisplayedPlotNames?: React.Dispatch<React.SetStateAction<Set<string>>>,
+  setConfirmationModal?: React.Dispatch<React.SetStateAction<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    dependents: string[];
+    onConfirm: () => void;
+  }>>
 ) {
   try {
     // First, check for dependents
@@ -72,58 +82,86 @@ async function deleteShape(
     // Filter out the object itself from dependents for the confirmation message
     const otherDependents = dependents.filter(name => name !== shape.dbObject.name);
 
-    // If there are other dependents, ask for confirmation
-    if (otherDependents.length > 0) {
-      const dependentsList = otherDependents.join(', ');
-      const confirmMessage = `Are you sure you want to delete "${shape.dbObject.name}" and its dependents: ${dependentsList}?`;
+    // If there are other dependents, show confirmation modal
+    if (otherDependents.length > 0 && setConfirmationModal) {
+      setConfirmationModal({
+        isOpen: true,
+        title: 'Delete Object',
+        message: `Are you sure you want to delete "${shape.dbObject.name}"?`,
+        dependents: otherDependents,
+        onConfirm: async () => {
+          // Close the modal
+          setConfirmationModal(prev => ({ ...prev, isOpen: false }));
 
-      if (!window.confirm(confirmMessage)) {
-        return; // User cancelled
-      }
-    }
-
-    // Proceed with deletion
-    const response = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.dbObject.name}`, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || response.statusText);
-    }
-
-    // Parse the response as a list of names to delete
-    const deletedNames: string[] = await response.json();
-
-    // Remove all shapes whose names are in the deletedNames list, plus the original shape
-    setShapes(prevShapes =>
-      prevShapes.filter(
-        s => s.dbObject.name !== shape.dbObject.name && !deletedNames.includes(s.dbObject.name)
-      )
-    );
-
-    // Clean up plot-related state for Locus objects
-    if (shape.dbObject.object_type === 'Locus') {
-      // Remove from displayedPlotNames
-      setDisplayedPlotNames?.(prevNames => {
-        const newNames = new Set(prevNames);
-        newNames.delete(shape.dbObject.name);
-        return newNames;
+          // Proceed with deletion
+          await performDeletion(shape, sceneId, setShapes, setStatusMessage, setDisplayedPlotNames);
+        }
       });
+      return; // Exit early, deletion will be handled by onConfirm
     }
 
-    // Also clean up any Locus objects that were deleted as dependencies
-    // Remove all deleted names from displayedPlotNames (they might be Locus objects)
-    if (deletedNames.length > 0) {
-      setDisplayedPlotNames?.(prevNames => {
-        const newNames = new Set(prevNames);
-        deletedNames.forEach(name => newNames.delete(name));
-        return newNames;
-      });
-    }
+    // No dependents, proceed with deletion directly
+    await performDeletion(shape, sceneId, setShapes, setStatusMessage, setDisplayedPlotNames);
   } catch (err) {
     console.error('Failed to delete shape:', err);
     setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+  }
+}
+
+async function performDeletion(
+  shape: Shape,
+  sceneId: number,
+  setShapes: React.Dispatch<React.SetStateAction<Shape[]>>,
+  setStatusMessage: (message: string | null) => void,
+  setDisplayedPlotNames?: React.Dispatch<React.SetStateAction<Set<string>>>
+) {
+  const response = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.dbObject.name}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || response.statusText);
+  }
+
+  // Parse the response as a list of names to delete
+  const deletedNames: string[] = await response.json();
+
+  // Remove all shapes whose names are in the deletedNames list, plus the original shape
+  setShapes(prevShapes => {
+    const filteredShapes = prevShapes.filter(
+      s => s.dbObject.name !== shape.dbObject.name && !deletedNames.includes(s.dbObject.name)
+    );
+
+    // Update locusOrdinal for remaining Locus shapes
+    const remainingLocusShapes = filteredShapes.filter(s => s.dbObject.object_type === 'Locus');
+    remainingLocusShapes.forEach((locusShape, index) => {
+      if ('locusOrdinal' in locusShape) {
+        (locusShape as LocusShape).locusOrdinal = index;
+      }
+    });
+
+    return filteredShapes;
+  });
+
+  // Clean up plot-related state for Locus objects
+  if (shape.dbObject.object_type === 'Locus') {
+    // Remove from displayedPlotNames
+    setDisplayedPlotNames?.(prevNames => {
+      const newNames = new Set(prevNames);
+      newNames.delete(shape.dbObject.name);
+      return newNames;
+    });
+  }
+
+  // Also clean up any Locus objects that were deleted as dependencies
+  // Remove all deleted names from displayedPlotNames (they might be Locus objects)
+  if (deletedNames.length > 0) {
+    setDisplayedPlotNames?.(prevNames => {
+      const newNames = new Set(prevNames);
+      deletedNames.forEach(name => newNames.delete(name));
+      return newNames;
+    });
   }
 }
 
@@ -146,8 +184,21 @@ function App() {
   const [mousePos, setMousePos] = useState<{ x: number, y: number }>({ x: 200, y: 200 });
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [displayedPlotNames, setDisplayedPlotNames] = useState<Set<string>>(new Set());
-  const [plotPointsByLocusName, setPlotPointsByLocusName] = useState<Record<string, PlotPointElement[][]>>({});
+  const [plotDataByLocusName, setPlotDataByLocusName] = useState<Record<string, PlotData>>({});
   const [isSceneManagementModalOpen, setIsSceneManagementModalOpen] = useState(false);
+  const [confirmationModal, setConfirmationModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    dependents: string[];
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    dependents: [],
+    onConfirm: () => { },
+  });
 
   const unsetAction = useCallback(() => {
     setCurrentAction(null);
@@ -230,7 +281,7 @@ function App() {
     setStagedShapeName(null);
     setStatusMessage(null);
     setDisplayedPlotNames(new Set());
-    setPlotPointsByLocusName({});
+    setPlotDataByLocusName({});
     setShapes([]);
   }, [selectedSceneId]);
 
@@ -257,9 +308,9 @@ function App() {
 
   const handleDeleteShape = useCallback((shape: Shape) => {
     if (selectedSceneId !== null) {
-      deleteShape(shape, setShapes, selectedSceneId, setStatusMessage, setDisplayedPlotNames);
+      deleteShape(shape, setShapes, selectedSceneId, setStatusMessage, setDisplayedPlotNames, setConfirmationModal);
     }
-  }, [selectedSceneId, setShapes, setStatusMessage, setDisplayedPlotNames]);
+  }, [selectedSceneId, setShapes, setStatusMessage, setDisplayedPlotNames, setConfirmationModal]);
 
   // Handle keyboard events for deleting selected shapes
   useEffect(() => {
@@ -301,26 +352,30 @@ function App() {
         const text = await response.text();
         throw new Error(text || response.statusText);
       }
-      const plotPoints: PlotPointElement[][] = await response.json();
+      const plotData: PlotData = await response.json();
 
-      // Store the plot points
-      setPlotPointsByLocusName(prev => ({
+      // Store the complete plot data
+      setPlotDataByLocusName(prev => ({
         ...prev,
-        [locusName]: plotPoints
+        [locusName]: plotData
       }));
-      console.log(`Saved ${plotPoints.length} points for locus ${locusName}`);
+      console.log(`Saved ${plotData.points.length} points for locus ${locusName}`);
+      console.log(`Curve equation: ${plotData.equation}`);
 
       // Add to displayed plot names
       setDisplayedPlotNames(prev => new Set([...prev, locusName]));
 
-      // Update status message with point count
-      setStatusMessage(`Computed the curve (point count: ${plotPoints.length})`);
+      // Update status message with point count and equation
+      const equationText = plotData.formatted_equations.length > 0
+        ? plotData.formatted_equations.join(' × ')
+        : plotData.equation;
+      setStatusMessage(`Computed the curve (point count: ${plotData.points.length}, equation: ${equationText})`);
     } catch (err) {
       console.error(`Failed to fetch plot points for locus ${locusName}:`, err);
       setStatusMessage(`Error: Failed to fetch plot points for locus ${locusName}: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
       throw err;
     }
-  }, [selectedSceneId, setPlotPointsByLocusName, setDisplayedPlotNames, setStatusMessage]);
+  }, [selectedSceneId, setPlotDataByLocusName, setDisplayedPlotNames, setStatusMessage]);
 
   // Helper function to get locus ordinal number
   const getLocusOrdinal = useCallback((locusName: string) => {
@@ -341,15 +396,15 @@ function App() {
         return newNames;
       });
     } else {
-      // Turn on: check if plot points exist, fetch if needed
-      if (!plotPointsByLocusName[shapeName]) {
+      // Turn on: check if plot data exists, fetch if needed
+      if (!plotDataByLocusName[shapeName]) {
         try {
           await fetchPlotPoints(shapeName);
         } catch {
           return; // Don't add to displayed names if fetch failed
         }
       } else {
-        // Plot points already exist, just add to displayed names
+        // Plot data already exists, just add to displayed names
         setDisplayedPlotNames(prevNames => {
           const newNames = new Set(prevNames);
           newNames.add(shapeName);
@@ -357,7 +412,7 @@ function App() {
         });
       }
     }
-  }, [displayedPlotNames, plotPointsByLocusName, fetchPlotPoints]);
+  }, [displayedPlotNames, plotDataByLocusName, fetchPlotPoints]);
 
   const handleInvariantSubmit = async () => {
     if (!selectedSceneId || !stagedShapeName || !invariantFormula.trim()) return;
@@ -377,6 +432,7 @@ function App() {
         throw new Error(text || res.statusText);
       }
       unsetAction();
+      console.log('1');
       setShapes(prevShapes => [...prevShapes, createShapeForDBObject(dbObject, shapes, -1)]);
     } catch (err) {
       console.error('Failed to POST invariant:', err);
@@ -398,8 +454,8 @@ function App() {
         setShapes={setShapes}
         displayedPlotNames={displayedPlotNames}
         setStatusMessage={setStatusMessage}
-        plotPointsByLocusName={plotPointsByLocusName}
-        setPlotPointsByLocusName={setPlotPointsByLocusName}
+        plotDataByLocusName={plotDataByLocusName}
+        setPlotDataByLocusName={setPlotDataByLocusName}
         fetchPlotPoints={fetchPlotPoints}
       />
       <ActionRibbon onActionClick={handleActionClick} setStatusMessage={setStatusMessage} />
@@ -552,6 +608,20 @@ function App() {
             }
           }
         }}
+      />
+      <Legend
+        displayedPlotNames={displayedPlotNames}
+        plotDataByLocusName={plotDataByLocusName}
+        shapes={shapes}
+      />
+      <ConfirmationModal
+        isOpen={confirmationModal.isOpen}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        dependents={confirmationModal.dependents}
+        dependentsTitle="The following objects will also be deleted:"
+        onConfirm={confirmationModal.onConfirm}
+        onCancel={() => setConfirmationModal(prev => ({ ...prev, isOpen: false }))}
       />
     </div>
   );

@@ -1,32 +1,33 @@
 import React, { useEffect, useRef } from 'react';
 import { Layer } from 'react-konva';
-import type { PlotPointElement, Shape } from './types';
+import type { PlotPointElement, Shape, PlotData } from './types';
 import { Html } from 'react-konva-utils';
 import { PLOT_COLORS, transformPlotColor } from './utils';
 import { ObjectType } from './enums';
 
 interface CanvasPointLayerProps {
-    plotPointsByLocusName: Record<string, PlotPointElement[][]>;
+    plotDataByLocusName: Record<string, PlotData>;
     displayedPlotNames: Set<string>;
     shapes: Shape[]; // Use proper Shape type
 }
 
 const CanvasPointLayer: React.FC<CanvasPointLayerProps> = ({
-    plotPointsByLocusName,
+    plotDataByLocusName,
     displayedPlotNames,
     shapes
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    // Helper function to get locus ordinal number
-    const getLocusOrdinal = (locusName: string) => {
-        const locusShapes = shapes.filter(shape =>
-            shape.dbObject.object_type === ObjectType.Locus
-        );
-        return locusShapes.findIndex(shape => shape.dbObject.name === locusName) % 10;
-    };
 
     useEffect(() => {
+        // Helper function to get locus ordinal number
+        const getLocusOrdinal = (locusName: string) => {
+            const locusShapes = shapes.filter(shape =>
+                shape.dbObject.object_type === ObjectType.Locus
+            );
+            return locusShapes.findIndex(shape => shape.dbObject.name === locusName) % 10;
+        };
+
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -38,14 +39,17 @@ const CanvasPointLayer: React.FC<CanvasPointLayerProps> = ({
 
         // Render all visible points
         Array.from(displayedPlotNames).forEach(locusName => {
-            const points = plotPointsByLocusName[locusName];
+            const plotData = plotDataByLocusName[locusName];
+            if (!plotData) return;
+
+            const points = plotData.points;
             if (!points) return;
 
             // Get the target color for this locus
             const locusOrdinal = getLocusOrdinal(locusName);
             const targetColor = PLOT_COLORS[locusOrdinal];
 
-            points.forEach(point => {
+            points.forEach((point: PlotPointElement[]) => {
                 // Coordinates are already physical and in visible range
                 const x = point[0] as number;
                 const y = point[1] as number;
@@ -59,7 +63,7 @@ const CanvasPointLayer: React.FC<CanvasPointLayerProps> = ({
                 ctx.fillRect(x, y, 1, 1);
             });
         });
-    }, [plotPointsByLocusName, displayedPlotNames, shapes]);
+    }, [plotDataByLocusName, displayedPlotNames, shapes]);
 
     return (
         <Layer>

@@ -92,13 +92,13 @@ impl EliminationStep {
         })
     }
 
-    /// Express the variable as a modular polynomial based on the current var_replacements and q
-    /// This method is left unimplemented for now
+    /// Express the variable as a modular polynomial based on the current var_replacements and q.
+    /// Returns None if the equation can never be satisfied (e.g., it results in "0 * v = non-zero")
     pub fn express_var_as_modular_poly(
         &self,
         var_replacements: &HashMap<u8, (ModularPoly, u8)>,
         q: &ModularPoly,
-    ) -> Result<(ModularPoly, u8), String> {
+    ) -> Result<(Option<ModularPoly>, u8), String> {
         let degree = self.poly_a.get_degree(self.v);
         info!(
             "Finding {} from {}",
@@ -135,15 +135,20 @@ impl EliminationStep {
                 "Using a random polynomial for {} because it turns out to be 0/0",
                 Poly::var_to_string(self.v)
             );
-            return Ok((ModularPoly::random(1, q.p), 1));
+            return Ok((Some(ModularPoly::random(1, q.p)), 1));
         }
-        let inv = modular_factor
-            .get_inverse(q)
-            .ok_or(format!("{} has no inverse modulo {}", modular_factor, q))?;
-        let product = (&modular_remainder * &inv).remainder(q);
-        let result = &ModularPoly::new(vec![0], q.p) - &product;
-        info!("{}^{} = {}", Poly::var_to_string(self.v), degree, result);
-        Ok((result, degree as u8))
+        match modular_factor.get_inverse(q) {
+            Some(inv) => {
+                let product = (&modular_remainder * &inv).remainder(q);
+                let result = &ModularPoly::new(vec![0], q.p) - &product;
+                info!("{}^{} = {}", Poly::var_to_string(self.v), degree, result);
+                Ok((Some(result), degree as u8))
+            }
+            None => {
+                info!("{} has no inverse modulo {}", modular_factor, q);
+                Ok((None, degree as u8))
+            }
+        }
     }
 }
 
@@ -194,6 +199,13 @@ impl<'a> Elimination<'a> {
             }
             poly_with_var = elimination_step.poly_a.clone();
             final_step = Some(elimination_step);
+        }
+        if final_step.is_none() {
+            final_step = Some(EliminationStep::new(
+                var_search_result.var,
+                poly_with_var.clone(),
+                new_polys[0].clone(),
+            ));
         }
         self.resolved_steps.push(final_step.unwrap());
         self.polys = new_polys;
@@ -254,7 +266,10 @@ impl<'a> Elimination<'a> {
         // Iterate over resolved_steps in reversed order
         for step in self.resolved_steps.iter().rev() {
             let (var_poly, var_degree) = step.express_var_as_modular_poly(&var_replacements, &q)?;
-            var_replacements.insert(step.v, (var_poly, var_degree));
+            if var_poly.is_none() {
+                return Ok(false);
+            }
+            var_replacements.insert(step.v, (var_poly.unwrap(), var_degree));
         }
 
         // Verify that equations hold

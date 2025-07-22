@@ -5,7 +5,7 @@ import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
 import { BaseShape } from './BaseShape';
 import { CanvasMidpoint } from './CanvasComponents';
-import { getPointDescription } from '../utils';
+import { getPointDescription, parsePoint } from '../utils';
 
 export class MidpointShape extends BaseShape {
     constructor(dbObject: PartialDBObject, shapes: Shape[]) {
@@ -18,7 +18,7 @@ export class MidpointShape extends BaseShape {
 
         // Parse point1
         if (point1) {
-            const point1Coords = this.parsePoint(point1, shapes);
+            const point1Coords = parsePoint(point1, shapes);
             if (point1Coords) {
                 this.points.push(point1Coords);
             }
@@ -26,30 +26,11 @@ export class MidpointShape extends BaseShape {
 
         // Parse point2
         if (point2) {
-            const point2Coords = this.parsePoint(point2, shapes);
+            const point2Coords = parsePoint(point2, shapes);
             if (point2Coords) {
                 this.points.push(point2Coords);
             }
         }
-    }
-
-    private parsePoint(pointValue: string, shapes: Shape[]): { x: number; y: number } | null {
-        // Check if it's a coordinate string like "x,y"
-        const coordMatch = pointValue.match(/^(-?\d+),\s*(-?\d+)$/);
-        if (coordMatch) {
-            return {
-                x: parseInt(coordMatch[1]),
-                y: parseInt(coordMatch[2])
-            };
-        }
-
-        // Otherwise, look up the object by name in shapes
-        const shape = shapes.find(s => s.dbObject.name === pointValue);
-        if (shape && shape.points.length > 0) {
-            return shape.getDefinedPoint()!;
-        }
-
-        return null;
     }
 
     getActionType(): ActionType | null {
@@ -60,7 +41,7 @@ export class MidpointShape extends BaseShape {
         const properties = this.dbObject.properties as Partial<MidpointProperties>;
         const point1 = getPointDescription(properties.point1 ?? null);
         const point2 = getPointDescription(properties.point2 ?? null);
-        return `${this.dbObject.name} (${point1}, ${point2})`;
+        return `${this.dbObject.name}: midpoint(${point1}, ${point2})`;
     }
 
     getDefinedPoint(): Vector2d | null {

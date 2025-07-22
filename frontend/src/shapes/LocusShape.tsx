@@ -1,5 +1,5 @@
 import type { Shape, PartialDBObject, LocusProperties } from '../types';
-import { ObjectType, ActionType } from '../enums';
+import { ObjectType, ActionType, MOBILE_POINT_OBJECT_TYPES } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
@@ -7,11 +7,9 @@ import { BaseShape } from './BaseShape';
 import { CanvasLocus } from './CanvasComponents';
 
 
-function getAllowedBaseObjectTypes(): ObjectType[] {
-    return [ObjectType.FreePoint, ObjectType.Midpoint, ObjectType.IntersectionPoint];
-}
-
 export class LocusShape extends BaseShape {
+    public locusOrdinal: number;
+
     constructor(dbObject: PartialDBObject, shapes: Shape[]) {
         super(dbObject);
         const point = (dbObject.properties as Partial<LocusProperties>)?.point;
@@ -19,10 +17,22 @@ export class LocusShape extends BaseShape {
         if (point) {
             const locusPoint = shapes.find(s =>
                 s.dbObject.name === point &&
-                getAllowedBaseObjectTypes().includes(s.dbObject.object_type));
+                MOBILE_POINT_OBJECT_TYPES.includes(s.dbObject.object_type));
             if (locusPoint) {
                 this.points = [locusPoint.getDefinedPoint()!];
             }
+        }
+
+        // Calculate locus ordinal based on existing locus shapes
+        const existingLocusShapes = shapes.filter(s => s.dbObject.object_type === ObjectType.Locus);
+        const matchingShape = existingLocusShapes.find(s => s.dbObject.name === dbObject.name);
+
+        if (matchingShape) {
+            // If this shape already exists, use its index
+            this.locusOrdinal = existingLocusShapes.indexOf(matchingShape);
+        } else {
+            // If this is a new shape, use the count of existing locus shapes
+            this.locusOrdinal = existingLocusShapes.length;
         }
     }
 
@@ -44,6 +54,8 @@ export class LocusShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        return new LocusShape(this.dbObject, []);
+        const clone = new LocusShape(this.dbObject, []);
+        clone.locusOrdinal = this.locusOrdinal;
+        return clone;
     }
 } 

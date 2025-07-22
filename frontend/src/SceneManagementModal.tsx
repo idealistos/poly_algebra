@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import './SceneManagementModal.css';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface SceneInfo {
     id: number;
@@ -18,6 +19,19 @@ export function SceneManagementModal({ isOpen, onClose, onSceneDeleted }: SceneM
     const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [confirmationModal, setConfirmationModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        dependents: string[];
+        onConfirm: () => void;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        dependents: [],
+        onConfirm: () => { },
+    });
 
     // Fetch scenes when modal opens
     useEffect(() => {
@@ -73,38 +87,44 @@ export function SceneManagementModal({ isOpen, onClose, onSceneDeleted }: SceneM
             .filter(scene => selectedScenes.has(scene.id))
             .map(scene => scene.name);
 
-        const confirmMessage = `Are you sure you want to delete ${selectedScenes.size} scene(s):\n${sceneNames.join(', ')}?`;
+        // Show confirmation modal
+        setConfirmationModal({
+            isOpen: true,
+            title: 'Delete Scenes',
+            message: `Are you sure you want to delete ${selectedScenes.size} scene(s)?`,
+            dependents: sceneNames,
+            onConfirm: async () => {
+                // Close the modal
+                setConfirmationModal(prev => ({ ...prev, isOpen: false }));
 
-        if (!window.confirm(confirmMessage)) {
-            return;
-        }
+                try {
+                    setIsLoading(true);
+                    setError(null);
 
-        try {
-            setIsLoading(true);
-            setError(null);
+                    // Delete each selected scene
+                    const deletePromises = Array.from(selectedScenes).map(async (sceneId) => {
+                        const response = await fetch(`http://localhost:8080/scenes/${sceneId}`, {
+                            method: 'DELETE',
+                        });
+                        if (!response.ok) {
+                            throw new Error(`Failed to delete scene ${sceneId}: ${response.statusText}`);
+                        }
+                    });
 
-            // Delete each selected scene
-            const deletePromises = Array.from(selectedScenes).map(async (sceneId) => {
-                const response = await fetch(`http://localhost:8080/scenes/${sceneId}`, {
-                    method: 'DELETE',
-                });
-                if (!response.ok) {
-                    throw new Error(`Failed to delete scene ${sceneId}: ${response.statusText}`);
+                    await Promise.all(deletePromises);
+
+                    // Clear selections and refresh scenes
+                    setSelectedScenes(new Set());
+                    await fetchScenes();
+                    onSceneDeleted();
+                } catch (err) {
+                    console.error('Failed to delete scenes:', err);
+                    setError(err instanceof Error ? err.message : 'Unknown error occurred');
+                } finally {
+                    setIsLoading(false);
                 }
-            });
-
-            await Promise.all(deletePromises);
-
-            // Clear selections and refresh scenes
-            setSelectedScenes(new Set());
-            await fetchScenes();
-            onSceneDeleted();
-        } catch (err) {
-            console.error('Failed to delete scenes:', err);
-            setError(err instanceof Error ? err.message : 'Unknown error occurred');
-        } finally {
-            setIsLoading(false);
-        }
+            }
+        });
     };
 
     if (!isOpen) return null;
@@ -178,6 +198,15 @@ export function SceneManagementModal({ isOpen, onClose, onSceneDeleted }: SceneM
                     </>
                 )}
             </div>
+            <ConfirmationModal
+                isOpen={confirmationModal.isOpen}
+                title={confirmationModal.title}
+                message={confirmationModal.message}
+                dependents={confirmationModal.dependents}
+                dependentsTitle="List of deleted scenes:"
+                onConfirm={confirmationModal.onConfirm}
+                onCancel={() => setConfirmationModal(prev => ({ ...prev, isOpen: false }))}
+            />
         </div>
     );
 } 

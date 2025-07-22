@@ -1,4 +1,4 @@
-import { ActionType, ArgumentType, ObjectType, ShapeState } from './enums';
+import { ActionGroup, ActionType, ArgumentType, ObjectType, ShapeState } from './enums';
 import type { Vector2d } from 'konva/lib/types';
 
 export interface ActionArgument {
@@ -9,10 +9,11 @@ export interface ActionArgument {
 
 export interface Action {
   name: ActionType;
-  object_type: ObjectType;
+  object_types: ObjectType[];
   description: string;
   arguments: ActionArgument[];
   allowed_names: string[];
+  group: ActionGroup;
 }
 
 export interface FixedPointProperties {
@@ -43,12 +44,52 @@ export interface LineABProperties {
   point2: string;
 }
 
+export interface PpBisectorProperties {
+  point1: string;
+  point2: string;
+}
+
 export interface InvariantProperties {
   formula: string;
 }
 
 export interface LocusProperties {
   point: string;
+}
+
+export interface TwoPointDistanceInvariantProperties {
+  point1: string;
+  point2: string;
+}
+
+export interface PointToLineDistanceInvariantProperties {
+  point: string;
+  line: string;
+}
+
+export interface TwoLineAngleInvariantProperties {
+  line1: string;
+  line2: string;
+}
+
+export interface PpToLineProperties {
+  point: string;
+  line: string;
+}
+
+export interface PlToLineProperties {
+  point: string;
+  line: string;
+}
+
+export interface ProjectionProperties {
+  point: string;
+  line: string;
+}
+
+export interface ReflectionProperties {
+  point: string;
+  line: string;
 }
 
 export type ObjectProperties =
@@ -58,8 +99,16 @@ export type ObjectProperties =
   | IntersectionPointProperties
   | SlidingPointProperties
   | LineABProperties
+  | PpBisectorProperties
+  | PpToLineProperties
+  | PlToLineProperties
+  | ProjectionProperties
+  | ReflectionProperties
   | InvariantProperties
   | LocusProperties
+  | TwoPointDistanceInvariantProperties
+  | PointToLineDistanceInvariantProperties
+  | TwoLineAngleInvariantProperties
   | null;
 
 export interface DBObject {
@@ -76,6 +125,12 @@ export interface PartialDBObject {
 
 export type PlotPointElement = number | { r: number; g: number; b: number };
 
+export interface PlotData {
+  points: PlotPointElement[][];
+  equation: string;
+  formatted_equations: string[];
+}
+
 export interface Shape {
   dbObject: PartialDBObject;
   state: ShapeState;
@@ -90,6 +145,11 @@ export interface Shape {
   getDefinedPoint(): Vector2d | null;
   closeToPoint(point: Vector2d, delta: number): boolean;
   distanceToPoint(point: Vector2d): number;
+}
+
+export interface Line {
+  point: Vector2d; // Some point on the line
+  n: Vector2d; // Normal vector
 }
 
 export interface CanvasProperties {

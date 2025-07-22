@@ -7,6 +7,9 @@ use std::{fmt, mem, rc::Rc};
 
 use crate::modular_poly::ModularPoly;
 
+mod poly_conversion;
+mod poly_operations;
+
 /// Result of searching for the variable with minimum degree across polynomials
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VarSearchResult {
@@ -17,9 +20,6 @@ pub struct VarSearchResult {
     /// The index of the polynomial that contains this variable with the minimum degree
     pub poly_index: usize,
 }
-
-mod poly_conversion;
-mod poly_operations;
 
 #[derive(Debug, Clone)]
 pub struct Term {

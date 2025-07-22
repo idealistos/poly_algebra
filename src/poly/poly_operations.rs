@@ -312,7 +312,7 @@ impl PolyOperations for Poly {
             .map_err(|e| format!("Failed to get Pari/GP executable path: {}", e))?;
 
         // Create the Pari/GP factoring task
-        let poly_str = format!("{}", self);
+        let poly_str = format!("{:#}", self);
         let pari_task = format!(
             "{{expr = Vec(factor({}));print(expr[1]);print(expr[2]);}}",
             poly_str

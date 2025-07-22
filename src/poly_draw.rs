@@ -71,11 +71,16 @@ impl XYPolyDraw {
         points: &mut Vec<(u32, u32)>,
         y_count: u32,
     ) {
-        // Evaluate polynomial at the center of the region
+        // Evaluate polynomial for the region
         let value = self.xy_poly.evaluate(x_interval, y_interval);
         if value == FInt::new(0.0) {
             if rect.size() == 1 {
-                points.push((rect.x0, y_count - rect.y0 - 1));
+                if self
+                    .xy_poly
+                    .likely_contains_zero_check_corners_and_center(x_interval, y_interval)
+                {
+                    points.push((rect.x0, y_count - rect.y0 - 1));
+                }
             } else {
                 // Subdivide the region
                 for sub_rect in rect.subdivide() {

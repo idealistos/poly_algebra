@@ -19,6 +19,13 @@ use crate::poly::{Poly, PolyOperations, SingleOutResult};
 use crate::poly_draw::{Color, XYPolyDraw};
 use crate::scene_object::{ObjectType, SceneError, SceneObject};
 
+#[derive(Debug)]
+pub struct PlotData {
+    pub points: Vec<(u32, u32, Color)>,
+    pub equation: String,
+    pub formatted_equations: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct View {
     pub center: Center,
@@ -36,6 +43,12 @@ pub struct Plot {
     pub name: String,
     pub x: String,
     pub y: String,
+}
+
+#[derive(Debug)]
+pub struct CurveEquationAndFactors {
+    pub curve_equation: Poly,
+    pub factors: Vec<Poly>,
 }
 
 #[derive(Debug)]
@@ -208,7 +221,17 @@ impl Scene {
             .arg(python_code)
             .output()
             .map_err(|e| SceneError::DatabaseError(format!("Failed to run Python: {}", e)))?;
-        println!("output: {:?}", output);
+        println!("output status: {:?}", output.status);
+        println!(
+            "output stdout:\n{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        if !output.stderr.is_empty() {
+            println!(
+                "output stderr:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
 
         if !output.status.success() {
             return Err(SceneError::DatabaseError(format!(
@@ -253,7 +276,10 @@ impl Scene {
         Ok((x_var, y_var))
     }
 
-    pub fn get_curve_equation(equations: Vec<&str>, plot: &Plot) -> Result<Poly, SceneError> {
+    pub fn get_curve_equation_and_factors(
+        equations: Vec<&str>,
+        plot: &Plot,
+    ) -> Result<CurveEquationAndFactors, SceneError> {
         // Convert equations to polynomials
         let mut polys: Vec<Rc<Poly>> = equations
             .into_iter()
@@ -375,7 +401,12 @@ impl Scene {
         let factors = result
             .factor()
             .map_err(|e| SceneError::InvalidEquation(e))?;
-        if factors.len() > 1 {
+
+        let mut product_factors = Vec::new();
+
+        if factors.len() == 1 {
+            product_factors = vec![(*result).clone()];
+        } else if factors.len() > 1 {
             info!(
                 "Factors: {}",
                 factors
@@ -391,6 +422,8 @@ impl Scene {
                     .map_err(|e| SceneError::InvalidEquation(e))?
                 {
                     product = product.multiply(&factor);
+                    // Add the factor to product_factors
+                    product_factors.push(factor);
                 } else {
                     info!("Skipping factor {}", factor);
                 }
@@ -399,7 +432,10 @@ impl Scene {
             result = Rc::new(product);
         }
 
-        Ok((*result).clone())
+        Ok(CurveEquationAndFactors {
+            curve_equation: (*result).clone(),
+            factors: product_factors,
+        })
     }
 
     pub fn solve_and_plot(
@@ -407,7 +443,7 @@ impl Scene {
         locus_name: &str,
         width: u32,
         height: u32,
-    ) -> Result<Vec<(u32, u32, Color)>, SceneError> {
+    ) -> Result<PlotData, SceneError> {
         // Convert plot to equations
         let (equations, plots) = self.to_equations()?;
         info!(
@@ -417,16 +453,22 @@ impl Scene {
         );
         let plot = plots.iter().find(|p| p.name == locus_name).unwrap();
 
-        // Get curve equation
-        let curve_equation =
-            Scene::get_curve_equation(equations.iter().map(|s| s.as_str()).collect(), plot)
-                .map_err(|e| SceneError::InvalidEquation(e.to_string()))?;
+        // Get curve equation and factors
+        let curve_equation_and_factors = Scene::get_curve_equation_and_factors(
+            equations.iter().map(|s| s.as_str()).collect(),
+            plot,
+        )
+        .map_err(|e| SceneError::InvalidEquation(e.to_string()))?;
 
-        info!("Curve equation: {}", curve_equation);
+        info!(
+            "Curve equation: {}",
+            curve_equation_and_factors.curve_equation
+        );
 
         let (x_var, y_var) = Self::parse_plot_vars(plot)?;
         // Convert to XYPoly
-        let xy_poly = curve_equation
+        let xy_poly = curve_equation_and_factors
+            .curve_equation
             .as_xy_poly(x_var, y_var)
             .map_err(|e| SceneError::InvalidEquation(e.to_string()))?;
         info!("XYPoly: {}", xy_poly);
@@ -456,7 +498,19 @@ impl Scene {
         // Get curve points
         let points = drawer.get_curve_points_smoothed(points, width * 4, height * 4);
         info!("Smoothed points: {}", points.len());
-        Ok(points)
+
+        let equation_str = format!("{}", curve_equation_and_factors.curve_equation);
+        let formatted_equations: Vec<String> = curve_equation_and_factors
+            .factors
+            .iter()
+            .map(|factor| factor.as_formatted_equation(x_var, y_var))
+            .collect();
+
+        Ok(PlotData {
+            points,
+            equation: equation_str,
+            formatted_equations,
+        })
     }
 }
 
@@ -807,7 +861,7 @@ is_constant(d(P1, P2))"#;
 
     #[test]
     fn test_get_curve_equation() {
-        let poly = Scene::get_curve_equation(
+        let result = Scene::get_curve_equation_and_factors(
             vec!["a^2 - 2*c", "b^2 - 3*d", "d - c"],
             &Plot {
                 name: "plotA".to_string(),
@@ -816,7 +870,7 @@ is_constant(d(P1, P2))"#;
             },
         )
         .unwrap();
-        assert_eq!(format!("{}", poly), "2*b^2 - 3*a^2");
+        assert_eq!(format!("{}", result.curve_equation), "2*b^2 - 3*a^2");
     }
 
     #[tokio::test]

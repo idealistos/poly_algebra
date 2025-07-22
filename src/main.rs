@@ -12,7 +12,7 @@ mod x_poly;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use log::info;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
+use sea_orm::{ActiveModelTrait, ConnectOptions, ConnectionTrait, Set};
 use sea_orm::{Database, DatabaseConnection, Statement};
 use std::env;
 use std::fs;
@@ -174,9 +174,9 @@ async fn main() -> std::io::Result<()> {
             return Ok(());
         }
         Commands::Start => {
-            let db = Database::connect("sqlite://scenes.db?mode=rwc")
-                .await
-                .unwrap();
+            let mut connect_options = ConnectOptions::new("sqlite://scenes.db?mode=rwc");
+            connect_options.sqlx_logging(false);
+            let db = Database::connect(connect_options).await.unwrap();
             let app_state = service::AppState::new(db).await;
 
             HttpServer::new(move || {

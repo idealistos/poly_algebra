@@ -112,6 +112,14 @@ impl FInt {
         0.5 * (self.0 + self.1)
     }
 
+    pub fn lower_bound(&self) -> f64 {
+        self.0
+    }
+
+    pub fn upper_bound(&self) -> f64 {
+        self.1
+    }
+
     pub fn abs_bound(&self) -> f64 {
         f64::max(self.0.abs(), self.1.abs())
     }

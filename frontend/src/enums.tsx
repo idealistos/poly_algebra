@@ -9,11 +9,28 @@ export enum ObjectType {
     Midpoint = 'Midpoint',
     IntersectionPoint = 'IntersectionPoint',
     SlidingPoint = 'SlidingPoint',
+    Projection = 'Projection',
+    Reflection = 'Reflection',
     LineAB = 'LineAB',
+    PpBisector = 'PpBisector',
+    PpToLine = 'PpToLine',
+    PlToLine = 'PlToLine',
     Parameter = 'Parameter',
+    TwoPointDistanceInvariant = 'TwoPointDistanceInvariant',
+    PointToLineDistanceInvariant = 'PointToLineDistanceInvariant',
+    TwoLineAngleInvariant = 'TwoLineAngleInvariant',
     Invariant = 'Invariant',
     Locus = 'Locus',
 }
+
+export const MOBILE_POINT_OBJECT_TYPES: ObjectType[] = [
+    ObjectType.FreePoint,
+    ObjectType.Midpoint,
+    ObjectType.IntersectionPoint,
+    ObjectType.SlidingPoint,
+    ObjectType.Projection,
+    ObjectType.Reflection,
+];
 
 export enum ShapeState {
     Default = 'Default',
@@ -30,9 +47,24 @@ export enum ActionType {
     Midpoint = 'Midpoint',
     IntersectionPoint = 'IntersectionPoint',
     SlidingPoint = 'SlidingPoint',
+    Projection = 'Projection',
+    Reflection = 'Reflection',
     LineAB = 'LineAB',
+    PpBisector = 'PpBisector',
+    PpToLine = 'PpToLine',
+    PlToLine = 'PlToLine',
     Parameter = 'Parameter',
+    DistanceInvariant = 'DistanceInvariant',
+    AngleInvariant = 'AngleInvariant',
     Invariant = 'Invariant',
+    Locus = 'Locus',
+}
+
+export enum ActionGroup {
+    Points = 'Points',
+    Lines = 'Lines',
+    Parameters = 'Parameters',
+    Constraints = 'Constraints',
     Locus = 'Locus',
 }
 
@@ -40,8 +72,10 @@ export enum ArgumentType {
     GridPoint = 'GridPoint',
     MobilePoint = 'MobilePoint',
     AnyDefinedPoint = 'AnyDefinedPoint',
+    AnyDefinedOrGridPoint = 'AnyDefinedOrGridPoint',
     IntersectionPoint = 'IntersectionPoint',
     SlidingPoint = 'SlidingPoint',
+    Line = 'Line',
 }
 
 export function getColor(shape: Shape) {
@@ -74,9 +108,18 @@ export function getPointDBProperties(objectType: ObjectType, lastPoint: Vector2d
     switch (objectType) {
         case ObjectType.Midpoint:
         case ObjectType.LineAB:
+        case ObjectType.PpBisector:
+        case ObjectType.TwoPointDistanceInvariant:
             return currentActionStep === 0 ? { point1: value } : { point2: value };
         case ObjectType.Locus:
+        case ObjectType.PointToLineDistanceInvariant:
+        case ObjectType.PpToLine:
+        case ObjectType.PlToLine:
+        case ObjectType.Projection:
+        case ObjectType.Reflection:
             return { point: value };
+        case ObjectType.TwoLineAngleInvariant:
+            return currentActionStep === 0 ? { line1: value } : { line2: value };
         default:
             return { value: value };
     }
