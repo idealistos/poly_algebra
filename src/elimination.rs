@@ -1,6 +1,5 @@
 use crate::modular_poly::ModularPoly;
 use crate::poly::{Poly, PolyOperations, VarSearchResult};
-use gcd::Gcd;
 use log::info;
 use rand::Rng;
 use std::{collections::HashMap, fmt, mem, rc::Rc};
@@ -44,7 +43,7 @@ impl EliminationStep {
         }
     }
 
-    pub fn get_next_step(&self) -> Option<Self> {
+    fn get_next_step_no_reduction(&self) -> Option<Self> {
         if self.degree_b == 0 {
             return None;
         }
@@ -90,6 +89,70 @@ impl EliminationStep {
             degree_a: self.degree_b,
             degree_b,
         })
+    }
+
+    fn get_next_step_with_reduction(&self) -> Option<Self> {
+        if self.degree_b == 0 {
+            return None;
+        }
+
+        // Extract factors and remainders
+        info!("\n(A) {}\n(B) {}", self.poly_a, self.poly_b);
+
+        // poly_a = pa1 * v^d + pa2
+        let (pa1, pa2) = self
+            .poly_a
+            .extract_factor_and_remainder(self.v, self.degree_b);
+
+        // poly_b = pb1 * v^d + pb2
+        let (pb1, pb2) = self
+            .poly_b
+            .extract_factor_and_remainder(self.v, self.degree_b);
+
+        // Compute new poly_b = (pb1 * pa2 - pb2 * pa1) / gcd(pa1, pb1)
+
+        let factors_reduced = Poly::reduce_by_gcd(pa1, pb1);
+        let pa1 = factors_reduced.reduced1;
+        let pb1 = factors_reduced.reduced2;
+
+        let mut new_poly_b = pa2.multiply(&pb1);
+        let temp = pa1.multiply(&pb2);
+        new_poly_b.add_poly_scaled(&temp, -1);
+        new_poly_b.reduce_coefficients_if_large();
+
+        // Compute new factors
+        let mut p_factor_1b = self.p_factor_1a.multiply(&pb1);
+        let temp = self.p_factor_1b.multiply(&pa1);
+        p_factor_1b.add_poly_scaled(&temp, -1);
+
+        let mut p_factor_2b = self.p_factor_2a.multiply(&pb1);
+        let temp = self.p_factor_2b.multiply(&pa1);
+        p_factor_2b.add_poly_scaled(&temp, -1);
+
+        info!("(B'){}", new_poly_b);
+        let degree_b = new_poly_b.get_degree(self.v);
+
+        Some(Self {
+            v: self.v,
+            poly1: self.poly1.clone(),
+            poly2: self.poly2.clone(),
+            p_factor_1a: self.p_factor_1b.clone(),
+            p_factor_2a: self.p_factor_2b.clone(),
+            p_factor_1b: Rc::new(p_factor_1b),
+            p_factor_2b: Rc::new(p_factor_2b),
+            poly_a: self.poly_b.clone(),
+            poly_b: Rc::new(new_poly_b),
+            degree_a: self.degree_b,
+            degree_b,
+        })
+    }
+
+    pub fn get_next_step(&self, reduce_factors: bool) -> Option<Self> {
+        if reduce_factors {
+            self.get_next_step_with_reduction()
+        } else {
+            self.get_next_step_no_reduction()
+        }
     }
 
     /// Express the variable as a modular polynomial based on the current var_replacements and q.
@@ -153,15 +216,21 @@ impl EliminationStep {
 }
 
 pub struct Elimination<'a> {
-    pub initial_polys: &'a Vec<Rc<Poly>>,
+    initial_polys: &'a Vec<Rc<Poly>>,
     pub polys: Vec<Rc<Poly>>,
-    pub resolved_steps: Vec<EliminationStep>,
-    pub x_var: u8,
-    pub y_var: u8,
+    resolved_steps: Vec<EliminationStep>,
+    x_var: u8,
+    y_var: u8,
+    reduce_factors: bool, // If true, divide by gcd before multiplying
 }
 
 impl<'a> Elimination<'a> {
-    pub fn new(initial_polys: &'a Vec<Rc<Poly>>, x_var: u8, y_var: u8) -> Self {
+    pub fn new(
+        initial_polys: &'a Vec<Rc<Poly>>,
+        x_var: u8,
+        y_var: u8,
+        reduce_factors: bool,
+    ) -> Self {
         let polys = initial_polys.clone();
         Self {
             initial_polys,
@@ -169,6 +238,7 @@ impl<'a> Elimination<'a> {
             resolved_steps: Vec::new(),
             x_var,
             y_var,
+            reduce_factors,
         }
     }
 
@@ -191,7 +261,7 @@ impl<'a> Elimination<'a> {
 
             let mut elimination_step =
                 EliminationStep::new(var_search_result.var, poly.clone(), poly_with_var.clone());
-            while let Some(next_step) = elimination_step.get_next_step() {
+            while let Some(next_step) = elimination_step.get_next_step(self.reduce_factors) {
                 elimination_step = next_step;
             }
             if *elimination_step.poly_b != Poly::Constant(0) {
@@ -317,7 +387,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_elimination_step() {
+    fn test_elimination_step_no_reduction() {
         let poly1 = Poly::new("a + a*c^2 - 1 + c^2").unwrap();
         let poly2 = Poly::new("b + b*c^2 - 2*c").unwrap();
         let v = 2; // c
@@ -327,7 +397,7 @@ mod tests {
         assert_eq!(step.degree_b, 2); // degree of c in poly2
 
         // First step
-        let next_step = step.get_next_step().unwrap();
+        let next_step = step.get_next_step(false).unwrap();
         assert_eq!(next_step.degree_a, 2); // degree of c in poly_b
         assert_eq!(next_step.degree_b, 1); // degree of c in new poly_b
 
@@ -339,7 +409,7 @@ mod tests {
         assert_eq!(format!("{}", next_step.p_factor_1b), "b");
         assert_eq!(format!("{}", next_step.p_factor_2b), "-1 - a");
 
-        let step3 = next_step.get_next_step().unwrap();
+        let step3 = next_step.get_next_step(false).unwrap();
         assert_eq!(step3.degree_a, 1); // degree of c in poly_b
         assert_eq!(step3.degree_b, 1); // degree of c in new poly_b
 
@@ -351,7 +421,7 @@ mod tests {
         assert_eq!(format!("{}", step3.p_factor_1b), "2*b - c*b^2");
         assert_eq!(format!("{}", step3.p_factor_2b), "c*b + c*b*a");
 
-        let step4 = step3.get_next_step().unwrap();
+        let step4 = step3.get_next_step(false).unwrap();
         assert_eq!(step4.degree_a, 1); // degree of c in poly_b
         assert_eq!(step4.degree_b, 0); // degree of c in new poly_b
 
@@ -377,6 +447,17 @@ mod tests {
     }
 
     #[test]
+    fn test_elimination_step_with_reduction() {
+        let poly1 = Poly::new("a*b*c + c + a + b").unwrap(); // c  (ab + 1) + (a + b) = 0
+        let poly2 = Poly::new("2*a^2*b*c + 2*a*c + 2*a*b").unwrap(); // 2ac (ab + 1) + 2ab = 0
+        let v = 2; // c
+
+        let step = EliminationStep::new(v, Rc::new(poly1), Rc::new(poly2));
+        let next_step = step.get_next_step(true).unwrap();
+        assert_eq!(format!("{}", next_step.poly_b), "2*a^2");
+    }
+
+    #[test]
     fn test_check_factor() {
         // Create initial polynomials
         let poly1 = Poly::new("a + a*c^2 - 1 + c^2").unwrap();
@@ -384,7 +465,7 @@ mod tests {
         let initial_polys = vec![Rc::new(poly1), Rc::new(poly2)];
 
         // Create Elimination with x_var = 0 (a), y_var = 1 (b)
-        let mut elimination = Elimination::new(&initial_polys, 0, 1);
+        let mut elimination = Elimination::new(&initial_polys, 0, 1, false);
 
         // Get the variable to eliminate (should be var = 2 (c))
         let var_search_result = elimination.get_var_to_eliminate().unwrap();

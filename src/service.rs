@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, web, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpResponse, Responder};
 use chrono::{DateTime, Utc};
 use log::info;
 use sea_orm::ActiveValue::NotSet;
@@ -6,10 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::db::{SceneActiveModel, SceneColumn, SceneEntity, SCENE_DEFAULT_NAME};
 use crate::poly_draw::Color;
-use crate::scene::{Scene, View};
+use crate::scene::{Scene, SceneOptions, View};
 use crate::scene_object::{ObjectType, SceneError, SceneObject};
 use sea_orm::{
     ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, QueryOrder, Set,
@@ -57,6 +58,7 @@ pub struct PlotResponse {
     pub points: Vec<(u32, u32, Color)>,
     pub equation: String,
     pub formatted_equations: Vec<String>,
+    pub time_taken: f64,
 }
 
 #[derive(Debug)]
@@ -75,9 +77,9 @@ impl AppState {
         Self { db: Arc::new(db) }
     }
 
-    pub async fn load_scene(&self, scene_id: &str) -> SceneOrError {
+    pub async fn load_scene(&self, scene_id: &str, options: SceneOptions) -> SceneOrError {
         let scene_id = scene_id.parse::<i32>().unwrap();
-        let mut scene = Scene::new(scene_id);
+        let mut scene = Scene::new(scene_id, options);
         match scene.load_objects_and_view(&self.db).await {
             Ok(()) => SceneOrError::Scene(scene),
             Err(e) => SceneOrError::Error(HttpResponse::InternalServerError().json(e.to_string())),
@@ -405,7 +407,10 @@ async fn get_actions() -> impl Responder {
 
 #[get("/scenes/{scene_id}")]
 async fn get_scene(data: web::Data<AppState>, scene_id: web::Path<String>) -> impl Responder {
-    match data.load_scene(&scene_id.into_inner()).await {
+    match data
+        .load_scene(&scene_id.into_inner(), SceneOptions::default())
+        .await
+    {
         SceneOrError::Scene(scene) => {
             let objects: Vec<SceneObjectResponse> = scene
                 .objects
@@ -435,7 +440,10 @@ async fn add_object(
     path: web::Path<String>,
     object: web::Json<SceneObjectResponse>,
 ) -> impl Responder {
-    match data.load_scene(&path.into_inner()).await {
+    match data
+        .load_scene(&path.into_inner(), SceneOptions::default())
+        .await
+    {
         SceneOrError::Scene(mut scene) => {
             match scene
                 .add_object(
@@ -460,7 +468,7 @@ async fn delete_object(
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     let (scene_id, object_name) = path.into_inner();
-    match data.load_scene(&scene_id).await {
+    match data.load_scene(&scene_id, SceneOptions::default()).await {
         SceneOrError::Scene(mut scene) => match scene.delete_object(&data.db, &object_name).await {
             Ok(dependencies) => HttpResponse::Ok().json(dependencies),
             Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
@@ -472,7 +480,7 @@ async fn delete_object(
 #[delete("/scenes/{scene_id}")]
 async fn delete_scene(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     let scene_id = path.into_inner();
-    match data.load_scene(&scene_id).await {
+    match data.load_scene(&scene_id, SceneOptions::default()).await {
         SceneOrError::Scene(mut scene) => match scene.delete_scene(&data.db).await {
             Ok(()) => HttpResponse::Ok().finish(),
             Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
@@ -487,7 +495,7 @@ async fn get_dependents(
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     let (scene_id, object_name) = path.into_inner();
-    match data.load_scene(&scene_id).await {
+    match data.load_scene(&scene_id, SceneOptions::default()).await {
         SceneOrError::Scene(scene) => {
             let dependents = scene.collect_dependent_objects(&object_name);
             HttpResponse::Ok().json(dependents)
@@ -513,26 +521,42 @@ async fn get_plot(
         .get("height")
         .and_then(|h| h.parse::<u32>().ok())
         .unwrap_or(2000);
+    let reduce_factors = query
+        .get("reduce_factors")
+        .and_then(|value| value.parse::<bool>().ok())
+        .unwrap_or(false);
 
-    match data.load_scene(&scene_id).await {
+    match data
+        .load_scene(&scene_id, SceneOptions::new(reduce_factors))
+        .await
+    {
         SceneOrError::Scene(scene) => {
             if let Some(SceneObject::Locus(_locus)) = scene.objects.get(&locus_name) {
+                let start_time = Instant::now();
                 match scene.solve_and_plot(&locus_name, width, height) {
                     Ok(plot_data) => {
+                        let elapsed = start_time.elapsed();
                         let response = PlotResponse {
                             points: plot_data.points,
                             equation: plot_data.equation,
                             formatted_equations: plot_data.formatted_equations,
+                            time_taken: elapsed.as_secs_f64(),
                         };
                         HttpResponse::Ok().json(response)
                     }
                     Err(e) => {
+                        let elapsed = start_time.elapsed();
                         info!(
-                            "Failed to solve for locus {}: {}",
+                            "Failed to solve for locus {}: {} (took {:.3}s)",
                             locus_name,
-                            e.to_string()
+                            e.to_string(),
+                            elapsed.as_secs_f64()
                         );
-                        HttpResponse::InternalServerError().json(e.to_string())
+                        HttpResponse::InternalServerError().json(format!(
+                            "{} (took {:.3}s)",
+                            e.to_string(),
+                            elapsed.as_secs_f64()
+                        ))
                     }
                 }
             } else {
@@ -550,6 +574,17 @@ pub struct CreateSceneRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateSceneResponse {
+    pub id: i32,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameSceneRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RenameSceneResponse {
     pub id: i32,
     pub name: String,
 }
@@ -602,6 +637,41 @@ async fn create_scene(
     }
 }
 
+#[patch("/scenes/{scene_id}")]
+async fn rename_scene(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    request: web::Json<RenameSceneRequest>,
+) -> impl Responder {
+    let scene_id = path.into_inner();
+    let new_name = request.name.clone();
+
+    let db = &*data.db;
+
+    // Update the scene name in the database
+    let scene_id_int = scene_id.parse::<i32>().unwrap();
+    let scene_model = SceneEntity::find_by_id(scene_id_int)
+        .one(db)
+        .await
+        .unwrap_or(None);
+
+    match scene_model {
+        Some(scene_model) => {
+            let mut active_model = scene_model.into_active_model();
+            active_model.name = Set(new_name.clone());
+
+            match active_model.update(db).await {
+                Ok(updated_scene) => HttpResponse::Ok().json(RenameSceneResponse {
+                    id: updated_scene.id,
+                    name: updated_scene.name,
+                }),
+                Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
+            }
+        }
+        None => HttpResponse::NotFound().json("Scene not found"),
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct SceneInfo {
     pub id: i32,
@@ -636,5 +706,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(get_dependents)
         .service(get_plot)
         .service(create_scene)
+        .service(rename_scene)
         .service(get_scenes);
 }

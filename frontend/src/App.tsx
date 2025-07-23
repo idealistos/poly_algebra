@@ -347,7 +347,7 @@ function App() {
   const fetchPlotPoints = useCallback(async (locusName: string) => {
     try {
       setStatusMessage("Computing the curve...");
-      const response = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/plot/${locusName}?width=${window.innerWidth}&height=${window.innerHeight}`);
+      const response = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/plot/${locusName}?width=${window.innerWidth}&height=${window.innerHeight}&reduce_factors=true`);
       if (!response.ok) {
         const text = await response.text();
         throw new Error(text || response.statusText);
@@ -365,11 +365,11 @@ function App() {
       // Add to displayed plot names
       setDisplayedPlotNames(prev => new Set([...prev, locusName]));
 
-      // Update status message with point count and equation
+      // Update status message with point count, equation, and timing
       const equationText = plotData.formatted_equations.length > 0
         ? plotData.formatted_equations.join(' × ')
         : plotData.equation;
-      setStatusMessage(`Computed the curve (point count: ${plotData.points.length}, equation: ${equationText})`);
+      setStatusMessage(`Computed the curve (point count: ${plotData.points.length}, equation: ${equationText}, time: ${plotData.time_taken.toFixed(3)}s)`);
     } catch (err) {
       console.error(`Failed to fetch plot points for locus ${locusName}:`, err);
       setStatusMessage(`Error: Failed to fetch plot points for locus ${locusName}: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
@@ -608,6 +608,7 @@ function App() {
             }
           }
         }}
+        onSceneSelected={setSelectedSceneId}
       />
       <Legend
         displayedPlotNames={displayedPlotNames}

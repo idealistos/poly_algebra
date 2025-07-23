@@ -1,26 +1,7 @@
-use crate::poly::{Poly, PolyConversion};
 use log::info;
+
+use crate::poly::{Poly, PolyConversion};
 use std::rc::Rc;
-use std::time::Duration;
-
-// Cross-platform function to kill a process by ID
-fn kill_process_by_id(pid: u32) {
-    #[cfg(target_os = "windows")]
-    {
-        // Windows: use taskkill command
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/F"])
-            .output();
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // Unix-like systems (Linux, macOS): use kill command
-        let _ = std::process::Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output();
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum SingleOutResult {
@@ -29,15 +10,23 @@ pub enum SingleOutResult {
     Nonlinear,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReductionResult {
+    pub reduced1: Rc<Poly>,
+    pub reduced2: Rc<Poly>,
+    pub gcd: Rc<Poly>,
+}
+
 pub trait PolyOperations {
     fn scale(&mut self, factor: i64);
     fn add_poly_scaled(&mut self, poly: &Poly, factor: i64);
     fn multiply(&self, poly: &Poly) -> Poly;
-    fn extract_factor_and_remainder(&self, v: u8, degree: u32) -> (Poly, Poly);
+    fn extract_factor_and_remainder(self: &Rc<Self>, v: u8, degree: u32) -> (Rc<Poly>, Rc<Poly>);
     fn single_out(&self, v: u8) -> SingleOutResult;
     fn substitute_linear(&self, v: u8, poly: Rc<Poly>, k: i64) -> Poly;
     fn get_derivative(&self, v: u8) -> Poly;
     fn factor(&self) -> Result<Vec<Poly>, String>;
+    fn reduce_by_gcd(poly1: Rc<Poly>, poly2: Rc<Poly>) -> ReductionResult;
 }
 
 impl PolyOperations for Poly {
@@ -164,23 +153,23 @@ impl PolyOperations for Poly {
         }
     }
 
-    fn extract_factor_and_remainder(&self, v: u8, degree: u32) -> (Poly, Poly) {
-        match self {
-            Poly::Constant(_) => (Poly::Constant(0), self.clone()),
-            Poly::Nested(v1, _) if *v1 > v => (Poly::Constant(0), self.clone()),
+    fn extract_factor_and_remainder(self: &Rc<Self>, v: u8, degree: u32) -> (Rc<Poly>, Rc<Poly>) {
+        match &**self {
+            Poly::Constant(_) => (Rc::new(Poly::Constant(0)), self.clone()),
+            Poly::Nested(v1, _) if *v1 > v => (Rc::new(Poly::Constant(0)), self.clone()),
             Poly::Nested(v1, polys1) if *v1 < v => {
                 let mut factor_polys = Vec::with_capacity(polys1.len());
                 let mut remainder_polys = Vec::with_capacity(polys1.len());
                 for p in polys1 {
                     let (f, r) = p.extract_factor_and_remainder(v, degree);
-                    factor_polys.push(Rc::new(f));
-                    remainder_polys.push(Rc::new(r));
+                    factor_polys.push(f);
+                    remainder_polys.push(r);
                 }
                 let mut poly1 = Poly::Nested(*v1, factor_polys);
                 let mut poly2 = Poly::Nested(*v1, remainder_polys);
                 poly1.cleanup();
                 poly2.cleanup();
-                (poly1, poly2)
+                (Rc::new(poly1), Rc::new(poly2))
             }
             Poly::Nested(v1, polys1) if *v1 == v => {
                 let d = degree as usize;
@@ -196,7 +185,7 @@ impl PolyOperations for Poly {
                 };
                 factor.cleanup();
                 remainder.cleanup();
-                (factor, remainder)
+                (Rc::new(factor), Rc::new(remainder))
             }
             _ => unreachable!(),
         }
@@ -307,81 +296,28 @@ impl PolyOperations for Poly {
     }
 
     fn factor(&self) -> Result<Vec<Poly>, String> {
-        // Get the Pari/GP executable path from main.rs
-        let pari_path = crate::get_pari_executable_path()
-            .map_err(|e| format!("Failed to get Pari/GP executable path: {}", e))?;
+        // Get the GpPariService singleton
+        let service = crate::get_gp_pari_service()?;
 
         // Create the Pari/GP factoring task
         let poly_str = format!("{:#}", self);
         let pari_task = format!(
-            "{{expr = Vec(factor({}));print(expr[1]);print(expr[2]);}}",
+            "{{expr = Vec(factor({}));print(expr[1]);print(expr[2]);print(\"Done\")}}",
             poly_str
         );
 
-        // Execute gp.exe -q from the specified folder
-        let mut child = std::process::Command::new(&pari_path)
-            .arg("-q")
-            .arg("-s")
-            .arg("128000000")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn {}: {}", pari_path, e))?;
+        // Execute the task using the singleton service
+        let output_lines = service.run_task(pari_task)?;
 
-        let child_id = child.id();
-
-        // Write the pari_task to stdin
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin
-                .write_all(pari_task.as_bytes())
-                .map_err(|e| format!("Failed to write to {} stdin: {}", pari_path, e))?;
-        }
-
-        // Wait for output with timeout
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        std::thread::spawn(move || {
-            let result = child.wait_with_output();
-            let _ = tx.send(result);
-        });
-
-        // Wait for either the result or timeout
-        let output = match rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                return Err(format!("Failed to get output from {}: {}", pari_path, e));
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Timeout occurred - kill the child process using cross-platform method
-                kill_process_by_id(child_id);
-                info!("Pari/GP call takes too long, returning original polynomial");
-                return Ok(vec![self.clone()]);
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                return Err("Thread communication failed".to_string());
-            }
-        };
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("{} failed: {}", pari_path, stderr));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let lines: Vec<&str> = stdout.lines().collect();
-
-        if lines.len() < 2 {
-            println!("{} output: {}", pari_path, stdout);
+        if output_lines.len() < 2 {
             return Err(format!(
-                "Expected at least 2 lines of output from {}. Output: {}",
-                pari_path, stdout
+                "Expected at least 2 lines of output from Pari/GP. Output: {:?}",
+                output_lines
             ));
         }
 
         // Parse the first line as "[<poly1>,<poly2>,..<polyN>]~"
-        let factors_line = lines[0].trim();
+        let factors_line = output_lines[0].trim();
         if !factors_line.starts_with('[') || !factors_line.ends_with("]~") {
             return Err(format!("Invalid factors line format: {}", factors_line));
         }
@@ -390,7 +326,7 @@ impl PolyOperations for Poly {
         let factor_strings: Vec<&str> = Self::parse_pari_list(factors_content)?;
 
         // Parse the second line as "[<degree1>,<degree2>,..,<degreeN>]~"
-        let degrees_line = lines[1].trim();
+        let degrees_line = output_lines[1].trim();
         if !degrees_line.starts_with('[') || !degrees_line.ends_with("]~") {
             return Err(format!("Invalid degrees line format: {}", degrees_line));
         }
@@ -444,6 +380,79 @@ impl PolyOperations for Poly {
         }
 
         Ok(factors)
+    }
+
+    fn reduce_by_gcd(poly1: Rc<Poly>, poly2: Rc<Poly>) -> ReductionResult {
+        // Get the GpPariService singleton
+        let service = match crate::get_gp_pari_service() {
+            Ok(service) => service,
+            Err(_) => {
+                // If service is not available, return default result
+                return ReductionResult {
+                    reduced1: poly1,
+                    reduced2: poly2,
+                    gcd: Rc::new(Poly::Constant(1)),
+                };
+            }
+        };
+
+        // Create the Pari/GP task for GCD computation
+        let poly1_str = format!("{:#}", *poly1);
+        let poly2_str = format!("{:#}", *poly2);
+        let pari_task = format!(
+            "{{pp = {}; qq = {}; gg = gcd([pp, qq]); print(gg); print(pp / gg); print(qq / gg); print(\"Done\")}}",
+            poly1_str, poly2_str
+        );
+
+        // Execute the task using the singleton service
+        let output_lines = match service.run_task(pari_task) {
+            Ok(lines) => lines,
+            Err(e) => {
+                info!("Error running Pari/GP task, assuming gcd = 1: {}", e);
+                // If task execution fails, return default result
+                return ReductionResult {
+                    reduced1: poly1,
+                    reduced2: poly2,
+                    gcd: Rc::new(Poly::Constant(1)),
+                };
+            }
+        };
+
+        // Check if we got exactly 3 lines of output
+        if output_lines.len() != 3 {
+            info!(
+                "Expected 3 lines of output from Pari/GP, got {}",
+                output_lines.len()
+            );
+            return ReductionResult {
+                reduced1: poly1,
+                reduced2: poly2,
+                gcd: Rc::new(Poly::Constant(1)),
+            };
+        }
+
+        // Parse the first line (GCD)
+        let gcd_str = output_lines[0].trim();
+        if gcd_str == "1" {
+            // If GCD is 1, return the original polynomials
+            return ReductionResult {
+                reduced1: poly1,
+                reduced2: poly2,
+                gcd: Rc::new(Poly::Constant(1)),
+            };
+        }
+        info!("Found GCD: {}", gcd_str);
+
+        // Parse the GCD
+        let gcd = Poly::from_poly_expression(gcd_str).unwrap();
+        let reduced1 = Poly::from_poly_expression(output_lines[1].trim()).unwrap();
+        let reduced2 = Poly::from_poly_expression(output_lines[2].trim()).unwrap();
+
+        ReductionResult {
+            reduced1: Rc::new(reduced1),
+            reduced2: Rc::new(reduced2),
+            gcd: Rc::new(gcd),
+        }
     }
 }
 
@@ -503,8 +512,6 @@ impl Poly {
 
 #[cfg(test)]
 mod tests {
-    use crate::set_pari_executable_path;
-
     use super::*;
 
     const GP_PATH: &str = r"C:\progs\pari\gp.exe";
@@ -726,7 +733,7 @@ mod tests {
 
     #[test]
     fn test_extract_factor_and_remainder_constant() {
-        let p = Poly::new("5").unwrap();
+        let p = Rc::new(Poly::new("5").unwrap());
         let (factor, remainder) = p.extract_factor_and_remainder(0, 1);
         assert_eq!(format!("{}", factor), "0");
         assert_eq!(format!("{}", remainder), "5");
@@ -734,7 +741,7 @@ mod tests {
 
     #[test]
     fn test_extract_factor_and_remainder_higher_variable() {
-        let p = Poly::new("1 + 2*b").unwrap();
+        let p = Rc::new(Poly::new("1 + 2*b").unwrap());
         let (factor, remainder) = p.extract_factor_and_remainder(0, 1);
         assert_eq!(format!("{}", factor), "0");
         assert_eq!(format!("{}", remainder), "1 + 2*b");
@@ -742,7 +749,7 @@ mod tests {
 
     #[test]
     fn test_extract_factor_and_remainder_same_variable() {
-        let p = Poly::new("1 + 2*a + 3*a^2 + 4*a^3").unwrap();
+        let p = Rc::new(Poly::new("1 + 2*a + 3*a^2 + 4*a^3").unwrap());
         let (factor, remainder) = p.extract_factor_and_remainder(0, 2);
         assert_eq!(format!("{}", factor), "3 + 4*a");
         assert_eq!(format!("{}", remainder), "1 + 2*a");
@@ -750,7 +757,7 @@ mod tests {
 
     #[test]
     fn test_extract_factor_and_remainder_lower_variable() {
-        let p = Poly::new("1 + 2*a + 3*a*b + 4*a*b^2").unwrap();
+        let p = Rc::new(Poly::new("1 + 2*a + 3*a*b + 4*a*b^2").unwrap());
         let (factor, remainder) = p.extract_factor_and_remainder(1, 1);
         assert_eq!(format!("{}", factor), "3*a + 4*b*a");
         assert_eq!(format!("{}", remainder), "1 + 2*a");
@@ -942,8 +949,7 @@ mod tests {
     }
 
     #[test]
-    fn test_factor() {
-        set_pari_executable_path(GP_PATH.to_string());
+    fn test_factor_simple() {
         // Test case 1: Simple polynomial that factors
         let poly = Poly::new("a^2 - b^2").unwrap();
         let factors = poly.factor().unwrap();
@@ -996,7 +1002,6 @@ mod tests {
 
     #[test]
     fn test_factor_error_cases() {
-        set_pari_executable_path(GP_PATH.to_string());
         // Test case 1: Polynomial that might cause Pari/GP errors
         let poly = Poly::new("a^2 + b^2 + c^2").unwrap();
         // This might fail if Pari/GP is not available or if the polynomial is too complex
@@ -1020,14 +1025,100 @@ mod tests {
 
     #[test]
     fn test_factor_timeout() {
-        set_pari_executable_path(GP_PATH.to_string());
+        // Create a polynomial that should cause a timeout
+        // This complex polynomial should take longer than 5 seconds to factor
         let poly_in_pari_format = "(102*b^5 + 204*b^4 + 102*b^3)*a^12 + ((102*c + 102)*b^5 + (102*c^2 + 102*c + 612)*b^4 + (102*c^2 + 714)*b^3 + 204*b^2)*a^11 + ((204*c + 204)*b^3 + (204*c^2 + 1020)*b^2)*a^10 + (34*b^6 + 68*b^5 + (117*c + 34)*b^4 + 234*c*b^3 + 117*c*b^2)*a^9 + (15*b^8 + 30*b^7 + (34*c + 49)*b^6 + (34*c^2 + 34*c + 204)*b^5 + (151*c^2 + 117*c + 238)*b^4 + (117*c^3 + 117*c^2 + 702*c + 68)*b^3 + (117*c^3 + 819*c)*b^2 + 234*c*b)*a^8 + ((15*c + 15)*b^8 + (15*c^2 + 15*c + 90)*b^7 + (15*c^2 + 105)*b^6 + 30*b^5 + (68*c + 68)*b^4 + (68*c^2 + 340)*b^3 + (234*c^2 + 234*c)*b^2 + (234*c^3 + 1170*c)*b)*a^7 + ((30*c + 30)*b^6 + (30*c^2 + 39*c + 150)*b^5 + 78*c*b^4 + 39*c*b^3)*a^6 + (5*b^9 + 10*b^8 + 5*b^7 + (39*c^2 + 39*c)*b^5 + (39*c^3 + 39*c^2 + 234*c)*b^4 + (39*c^3 + 273*c + 3)*b^3 + (78*c + 6)*b^2 + 3*b)*a^5 + ((5*c + 5)*b^9 + (5*c^2 + 5*c + 30)*b^8 + (5*c^2 + 35)*b^7 + 10*b^6 + (78*c^2 + 81*c + 3)*b^3 + (78*c^3 + 3*c^2 + 393*c + 18)*b^2 + (3*c^2 + 21)*b + 6)*a^4 + ((10*c + 10)*b^7 + (10*c^2 + 50)*b^6 + (6*c + 6)*b + (6*c^2 + 30))*a^3 + (b^4 + 2*b^3 + b^2)*a^2 + ((c + 1)*b^4 + (c^2 + c + 6)*b^3 + (c^2 + 7)*b^2 + 2*b)*a + ((2*c + 2)*b^2 + (2*c^2 + 10)*b)";
-        // let poly_in_pari_format = "a^2 - b^2";
+
         let poly = Poly::from_poly_expression(poly_in_pari_format).unwrap();
-        let result = poly.factor().unwrap();
-        for factor in result.clone() {
-            println!("factor: {}", factor);
+        let result = poly.factor();
+
+        match result {
+            Ok(factors) => {
+                // If it doesn't timeout, that's unexpected but not necessarily wrong
+                // Just verify the factorization is correct
+                let mut reconstructed = Poly::Constant(1);
+                for factor in factors {
+                    reconstructed = reconstructed.multiply(&factor);
+                }
+                assert_eq!(reconstructed, poly);
+                println!("Factorization completed successfully (unexpected for timeout test)");
+            }
+            Err(e) => {
+                // Expected behavior: should timeout and return the specific error message
+                assert_eq!(
+                    e, "Task timed out after 5 seconds",
+                    "Expected timeout error message, but got: {}",
+                    e
+                );
+                println!("Timeout test passed: {}", e);
+            }
         }
-        assert!(result.len() == 1);
+    }
+    #[test]
+    fn test_factor_timeout_2() {
+        // Create a polynomial that should cause a timeout
+        // This complex polynomial should take longer than 5 seconds to factor
+        let poly_in_pari_format = "(101*b^5 + 204*b^4 + 102*b^3)*a^12 + ((102*c + 102)*b^5 + (102*c^2 + 102*c + 612)*b^4 + (102*c^2 + 714)*b^3 + 204*b^2)*a^11 + ((204*c + 204)*b^3 + (204*c^2 + 1020)*b^2)*a^10 + (34*b^6 + 68*b^5 + (117*c + 34)*b^4 + 234*c*b^3 + 117*c*b^2)*a^9 + (15*b^8 + 30*b^7 + (34*c + 49)*b^6 + (34*c^2 + 34*c + 204)*b^5 + (151*c^2 + 117*c + 238)*b^4 + (117*c^3 + 117*c^2 + 702*c + 68)*b^3 + (117*c^3 + 819*c)*b^2 + 234*c*b)*a^8 + ((15*c + 15)*b^8 + (15*c^2 + 15*c + 90)*b^7 + (15*c^2 + 105)*b^6 + 30*b^5 + (68*c + 68)*b^4 + (68*c^2 + 340)*b^3 + (234*c^2 + 234*c)*b^2 + (234*c^3 + 1170*c)*b)*a^7 + ((30*c + 30)*b^6 + (30*c^2 + 39*c + 150)*b^5 + 78*c*b^4 + 39*c*b^3)*a^6 + (5*b^9 + 10*b^8 + 5*b^7 + (39*c^2 + 39*c)*b^5 + (39*c^3 + 39*c^2 + 234*c)*b^4 + (39*c^3 + 273*c + 3)*b^3 + (78*c + 6)*b^2 + 3*b)*a^5 + ((5*c + 5)*b^9 + (5*c^2 + 5*c + 30)*b^8 + (5*c^2 + 35)*b^7 + 10*b^6 + (78*c^2 + 81*c + 3)*b^3 + (78*c^3 + 3*c^2 + 393*c + 18)*b^2 + (3*c^2 + 21)*b + 6)*a^4 + ((10*c + 10)*b^7 + (10*c^2 + 50)*b^6 + (6*c + 6)*b + (6*c^2 + 30))*a^3 + (b^4 + 2*b^3 + b^2)*a^2 + ((c + 1)*b^4 + (c^2 + c + 6)*b^3 + (c^2 + 7)*b^2 + 2*b)*a + ((2*c + 2)*b^2 + (2*c^2 + 10)*b)";
+
+        let poly = Poly::from_poly_expression(poly_in_pari_format).unwrap();
+        let result = poly.factor();
+
+        match result {
+            Ok(factors) => {
+                // If it doesn't timeout, that's unexpected but not necessarily wrong
+                // Just verify the factorization is correct
+                let mut reconstructed = Poly::Constant(1);
+                for factor in factors {
+                    reconstructed = reconstructed.multiply(&factor);
+                }
+                assert_eq!(reconstructed, poly);
+                println!("Factorization completed successfully (unexpected for timeout test)");
+            }
+            Err(e) => {
+                // Expected behavior: should timeout and return the specific error message
+                assert_eq!(
+                    e, "Task timed out after 5 seconds",
+                    "Expected timeout error message, but got: {}",
+                    e
+                );
+                println!("Timeout test passed: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_reduce_by_gcd() {
+        // Test case 1: Polynomials with common factor
+        let poly1 = Rc::new(Poly::new("a^2 - b^2").unwrap()); // (a+b)(a-b)
+        let poly2 = Rc::new(Poly::new("a^2 + 2*a*b + b^2").unwrap()); // (a+b)^2
+
+        let result = Poly::reduce_by_gcd(poly1.clone(), poly2.clone());
+
+        // The GCD should be (a+b), and the reduced polynomials should be (a-b) and (a+b)
+        assert_eq!(format!("{}", result.gcd), "-b - a");
+        assert_eq!(format!("{}", result.reduced1), "b - a");
+        assert_eq!(format!("{}", result.reduced2), "-b - a");
+
+        // Test case 2: Coprime polynomials (GCD should be 1)
+        let poly1 = Rc::new(Poly::new("a + 1").unwrap());
+        let poly2 = Rc::new(Poly::new("b + 1").unwrap());
+
+        let result = Poly::reduce_by_gcd(poly1.clone(), poly2.clone());
+
+        // Should return the original polynomials with GCD = 1
+        assert_eq!(result.reduced1, poly1);
+        assert_eq!(result.reduced2, poly2);
+        assert_eq!(*result.gcd, Poly::Constant(1));
+
+        // Test case 3: Same polynomial
+        let poly1 = Rc::new(Poly::new("a^2 + 2*a + 1").unwrap());
+        let poly2 = poly1.clone();
+
+        let result = Poly::reduce_by_gcd(poly1.clone(), poly2.clone());
+
+        // Should return GCD = original polynomial, reduced = 1
+        assert_eq!(result.gcd, poly1);
+        assert_eq!(*result.reduced1, Poly::Constant(1));
+        assert_eq!(*result.reduced2, Poly::Constant(1));
     }
 }

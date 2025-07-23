@@ -12,13 +12,16 @@ interface SceneManagementModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSceneDeleted: () => void;
+    onSceneSelected?: (sceneId: number) => void;
 }
 
-export function SceneManagementModal({ isOpen, onClose, onSceneDeleted }: SceneManagementModalProps) {
+export function SceneManagementModal({ isOpen, onClose, onSceneDeleted, onSceneSelected }: SceneManagementModalProps) {
     const [scenes, setScenes] = useState<SceneInfo[]>([]);
     const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [editingSceneId, setEditingSceneId] = useState<number | null>(null);
+    const [editingName, setEditingName] = useState<string>('');
     const [confirmationModal, setConfirmationModal] = useState<{
         isOpen: boolean;
         title: string;
@@ -77,6 +80,70 @@ export function SceneManagementModal({ isOpen, onClose, onSceneDeleted }: SceneM
         } else {
             // Select all
             setSelectedScenes(new Set(scenes.map(scene => scene.id)));
+        }
+    };
+
+    const handleStartEdit = (scene: SceneInfo) => {
+        setEditingSceneId(scene.id);
+        setEditingName(scene.name);
+    };
+
+    const handleCancelEdit = () => {
+        setEditingSceneId(null);
+        setEditingName('');
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editingSceneId || !editingName.trim()) {
+            handleCancelEdit();
+            return;
+        }
+
+        try {
+            setIsLoading(true);
+            setError(null);
+
+            const response = await fetch(`http://localhost:8080/scenes/${editingSceneId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: editingName.trim() }),
+            });
+            console.log(response);
+
+            if (!response.ok) {
+                throw new Error(`Failed to rename scene: ${response.statusText}`);
+            }
+
+            // Update the scene in the local state
+            setScenes(prev => prev.map(scene =>
+                scene.id === editingSceneId
+                    ? { ...scene, name: editingName.trim() }
+                    : scene
+            ));
+
+            handleCancelEdit();
+        } catch (err) {
+            console.error('Failed to rename scene:', err);
+            setError(err instanceof Error ? err.message : 'Unknown error occurred');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleKeyPress = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleSaveEdit();
+        } else if (e.key === 'Escape') {
+            handleCancelEdit();
+        }
+    };
+
+    const handleSceneClick = (sceneId: number) => {
+        if (onSceneSelected) {
+            onSceneSelected(sceneId);
+            onClose();
         }
     };
 
@@ -173,7 +240,36 @@ export function SceneManagementModal({ isOpen, onClose, onSceneDeleted }: SceneM
                                         />
                                     </div>
                                     <div>{scene.id}</div>
-                                    <div>{scene.name}</div>
+                                    <div className="scene-name-cell">
+                                        {editingSceneId === scene.id ? (
+                                            <input
+                                                type="text"
+                                                value={editingName}
+                                                onChange={(e) => setEditingName(e.target.value)}
+                                                onKeyDown={handleKeyPress}
+                                                onBlur={handleSaveEdit}
+                                                autoFocus
+                                                className="scene-name-input"
+                                            />
+                                        ) : (
+                                            <div className="scene-name-display">
+                                                <button
+                                                    className="scene-name-link"
+                                                    onClick={() => handleSceneClick(scene.id)}
+                                                    title="Select this scene"
+                                                >
+                                                    {scene.name}
+                                                </button>
+                                                <button
+                                                    className="scene-edit-button"
+                                                    onClick={() => handleStartEdit(scene)}
+                                                    title="Edit scene name"
+                                                >
+                                                    ✏️
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                     <div>{new Date(scene.created_at).toLocaleDateString()}</div>
                                 </div>
                             ))}

@@ -1,6 +1,7 @@
 mod db;
 mod elimination;
 mod fint;
+mod gp_pari_service;
 mod modular_poly;
 mod poly;
 mod poly_draw;
@@ -26,6 +27,9 @@ use env_logger::Env;
 
 // Global variable to store the Pari/GP executable path
 static mut PARI_EXECUTABLE_PATH: Option<String> = None;
+
+// Global singleton for GpPariService
+static mut GP_PARI_SERVICE: Option<gp_pari_service::GpPariService> = None;
 
 #[derive(Parser)]
 #[command(name = "poly_algebra")]
@@ -102,6 +106,26 @@ pub fn set_pari_executable_path(path: String) {
     }
 }
 
+/// Initialize the global GpPariService singleton
+pub fn init_gp_pari_service() -> Result<(), String> {
+    let executable_path = get_pari_executable_path()?;
+    unsafe {
+        GP_PARI_SERVICE = Some(gp_pari_service::GpPariService::new(executable_path));
+    }
+    Ok(())
+}
+
+/// Get a mutable reference to the global GpPariService singleton
+pub fn get_gp_pari_service() -> Result<&'static mut gp_pari_service::GpPariService, String> {
+    unsafe {
+        if let Some(ref mut service) = GP_PARI_SERVICE {
+            Ok(service)
+        } else {
+            Err("GpPariService not initialized".to_string())
+        }
+    }
+}
+
 async fn init_database() -> Result<DatabaseConnection, Box<dyn std::error::Error>> {
     // Database file path
     let db_path = "scenes.db";
@@ -157,6 +181,14 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // Initialize GpPariService singleton
+    if let Err(e) = init_gp_pari_service() {
+        eprintln!("Warning: Failed to initialize GpPariService: {}", e);
+        eprintln!("Pari/GP functionality will be limited");
+    } else {
+        info!("GpPariService initialized successfully");
+    }
+
     match cli.command {
         Commands::Init => {
             let db = init_database().await.unwrap();
@@ -184,7 +216,9 @@ async fn main() -> std::io::Result<()> {
                     .wrap(
                         Cors::default()
                             .allowed_origin("http://localhost:5174")
-                            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+                            .allowed_methods(vec![
+                                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS",
+                            ])
                             .allowed_header(actix_web::http::header::CONTENT_TYPE)
                             .supports_credentials(),
                     )

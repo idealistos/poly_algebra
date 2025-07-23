@@ -16,6 +16,10 @@ def i(x: "Value|int") -> "Value":
     return Value(None, x) if isinstance(x, int) else x
 
 
+def q(n: int, d: int) -> "RationalValue":
+    return RationalValue(n, d)
+
+
 # Types of Value:
 # - integer constant: var = None, initial = int value
 # - unknown constant (constant value bound by equations): var = int, initial = None
@@ -85,10 +89,38 @@ class Value:
         return self.integer_valued_operation(lambda a, b: f"{a} + {b}", lambda a: -a)
 
     def __pow__(self, power: "Value") -> "Value":
+        if isinstance(power, RationalValue):
+            return (
+                self.non_integer_valued_operation(
+                    lambda a, b: (
+                        f"{a}^{power.n} - {b}^{power.d}"
+                        if a.var is not None
+                        else f"{a.initial_as_int() ** power.n} - {b}^{power.d}"
+                    )
+                )
+                if power.n > 0
+                else self.non_integer_valued_operation(
+                    lambda a, b: (
+                        f"1 - {a}^{-power.n}*{b}^{power.d}"
+                        if a.var is not None
+                        else f"1 - {a.initial_as_int() ** (-power.n)}*{b}^{power.d}"
+                    )
+                )
+            )
         if power.var is not None:
             raise Exception("Only constant integer powers are supported")
-        return self.integer_valued_operation(
-            lambda a, b: f"{a}^{power} - {b}", lambda a: a ** power.initial_as_int()
+        return (
+            self.integer_valued_operation(
+                lambda a, b: f"{a}^{power} - {b}", lambda a: a ** power.initial_as_int()
+            )
+            if power.initial_as_int() > 0
+            else self.non_integer_valued_operation(
+                lambda a, b: (
+                    f"1 - {a}^{-power}*{b}"
+                    if a.var is not None
+                    else f"1 - {a.initial_as_int() ** (-power.initial_as_int())}*{b}"
+                )
+            )
         )
 
     def abs(self) -> "Value":
@@ -178,6 +210,15 @@ class Value:
         return self.non_integer_valued_binary_operation(
             other, lambda a, b, c: f"{a} - {b}*{c}"
         )
+
+
+class RationalValue(Value):
+    def __init__(self, n: int, d: int):
+        v = next_var()
+        super().__init__(v, None)
+        self.n = n
+        self.d = d
+        equations.append(f"{d}*{self} - {n}")
 
 
 def sqrt(value: Value) -> Value:

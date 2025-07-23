@@ -129,6 +129,7 @@ export interface PlotData {
   points: PlotPointElement[][];
   equation: string;
   formatted_equations: string[];
+  time_taken: number;
 }
 
 export interface Shape {

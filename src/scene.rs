@@ -51,15 +51,35 @@ pub struct CurveEquationAndFactors {
     pub factors: Vec<Poly>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SceneOptions {
+    pub reduce_factors: bool,
+}
+
+impl Default for SceneOptions {
+    fn default() -> Self {
+        Self {
+            reduce_factors: false,
+        }
+    }
+}
+
+impl SceneOptions {
+    pub fn new(reduce_factors: bool) -> Self {
+        Self { reduce_factors }
+    }
+}
+
 #[derive(Debug)]
 pub struct Scene {
     pub id: i32,
     pub objects: IndexMap<String, SceneObject>,
     pub view: View,
+    pub options: SceneOptions,
 }
 
 impl Scene {
-    pub fn new(id: i32) -> Self {
+    pub fn new(id: i32, options: SceneOptions) -> Self {
         Self {
             id,
             objects: IndexMap::new(),
@@ -67,6 +87,7 @@ impl Scene {
                 center: Center { x: 0.0, y: 0.0 },
                 diagonal: 25.0,
             },
+            options,
         }
     }
 
@@ -276,9 +297,10 @@ impl Scene {
         Ok((x_var, y_var))
     }
 
-    pub fn get_curve_equation_and_factors(
+    fn get_curve_equation_and_factors(
         equations: Vec<&str>,
         plot: &Plot,
+        options: SceneOptions,
     ) -> Result<CurveEquationAndFactors, SceneError> {
         // Convert equations to polynomials
         let mut polys: Vec<Rc<Poly>> = equations
@@ -356,7 +378,7 @@ impl Scene {
                 .join("\n")
         );
 
-        let mut elimination = Elimination::new(&polys, x_var, y_var);
+        let mut elimination = Elimination::new(&polys, x_var, y_var, options.reduce_factors);
         loop {
             match elimination.get_var_to_eliminate() {
                 Some(var_search_result) => {
@@ -457,6 +479,7 @@ impl Scene {
         let curve_equation_and_factors = Scene::get_curve_equation_and_factors(
             equations.iter().map(|s| s.as_str()).collect(),
             plot,
+            self.options.clone(),
         )
         .map_err(|e| SceneError::InvalidEquation(e.to_string()))?;
 
@@ -561,7 +584,7 @@ mod tests {
     async fn test_scene_operations() {
         let db = setup_test_db().await;
         let scene_id = SceneEntity::find().one(&db).await.unwrap().unwrap().id;
-        let mut scene = Scene::new(scene_id);
+        let mut scene = Scene::new(scene_id, SceneOptions::default());
 
         // Test adding objects
         let point_props = json!({
@@ -627,7 +650,7 @@ mod tests {
     async fn test_recursive_dependency_deletion() {
         let db = setup_test_db().await;
         let scene_id = SceneEntity::find().one(&db).await.unwrap().unwrap().id;
-        let mut scene = Scene::new(scene_id);
+        let mut scene = Scene::new(scene_id, SceneOptions::default());
 
         // Create a chain of dependencies: P1 -> L1 -> I1 -> L2
         // P1 (FixedPoint)
@@ -747,7 +770,7 @@ mod tests {
     async fn test_python_generation() {
         let db = setup_test_db().await;
         let scene_id = SceneEntity::find().one(&db).await.unwrap().unwrap().id;
-        let mut scene = Scene::new(scene_id);
+        let mut scene = Scene::new(scene_id, SceneOptions::default());
 
         // Add some objects
         let point_props = json!({
@@ -794,7 +817,7 @@ is_constant(d(P1, P2))"#;
     async fn test_equations_and_plots_generation() {
         let db = setup_test_db().await;
         let scene_id = SceneEntity::find().one(&db).await.unwrap().unwrap().id;
-        let mut scene = Scene::new(scene_id);
+        let mut scene = Scene::new(scene_id, SceneOptions::default());
 
         // Add fixed point A at (0,0)
         let point_props = json!({
@@ -868,6 +891,7 @@ is_constant(d(P1, P2))"#;
                 x: "a".to_string(),
                 y: "b".to_string(),
             },
+            SceneOptions::default(),
         )
         .unwrap();
         assert_eq!(format!("{}", result.curve_equation), "2*b^2 - 3*a^2");
@@ -976,7 +1000,7 @@ is_constant(d(P1, P2))"#;
         assert!(object_exists);
 
         // Load the scene and delete it
-        let mut scene = Scene::new(scene2.id);
+        let mut scene = Scene::new(scene2.id, SceneOptions::default());
         scene.load_objects_and_view(&db).await.unwrap();
 
         // Verify scene has objects before deletion
