@@ -162,7 +162,7 @@ def run_tests():
             Value(current_var[0] - 1, initial=Value(current_var[0] - 2)),
             "Variable sqrt value",
         )
-        assert_equation_exists(f"{v1} - {result}^2", "Variable sqrt equation")
+        assert_equation_exists(f"{v1}^1 - {result}^2", "Variable sqrt equation")
         assert_equation_exists(f"5 - {result.initial}^2", "Variable sqrt equation")
 
     except Exception as e:

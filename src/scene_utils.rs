@@ -278,7 +278,7 @@ impl SceneUtils {
         options: &SceneOptions,
     ) -> Result<Vec<Poly>, SceneError> {
         let mut polys = polys;
-        let mut reduced_further = false;
+        let mut reduction_step = 0;
 
         // Eliminate variables that are present in univariate polynomials
         loop {
@@ -304,7 +304,7 @@ impl SceneUtils {
                 break;
             }
 
-            reduced_further = true;
+            reduction_step += 1;
 
             // Create new list with eliminated variables
             let mut new_polys = Vec::new();
@@ -332,18 +332,18 @@ impl SceneUtils {
 
             // Replace polys with the new list and continue the loop
             polys = new_polys;
-        }
-        if reduced_further {
             info!(
-                "Reduced system: \n{}",
+                "Reduced system after step {}: \n{}",
+                reduction_step,
                 polys
                     .iter()
                     .map(|p| p.to_string())
                     .collect::<Vec<String>>()
                     .join("\n")
             );
-        } else {
-            info!("No further reduction possible");
+        }
+        if reduction_step == 0 {
+            info!("No reduction possible");
         }
 
         let mut elimination = Elimination::new(&polys, x_var, y_var, options.reduce_factors);
@@ -404,14 +404,30 @@ impl SceneUtils {
                     .join("\n")
             );
         }
+        let mut unchecked_factors = Vec::new();
         for factor in factors {
-            if elimination
-                .check_factor(&factor)
-                .map_err(|e| SceneError::InvalidEquation(e))?
-            {
-                product_factors.push(factor);
+            match elimination.check_factor(&factor) {
+                Ok(true) => {
+                    product_factors.push(factor);
+                }
+                Ok(false) => {
+                    info!("Skipping factor {}", factor);
+                }
+                Err(e) => {
+                    info!("Failed to check factor {}: {}", factor, e);
+                    unchecked_factors.push(factor);
+                }
+            }
+        }
+
+        if unchecked_factors.len() > 0 {
+            if product_factors.len() == 0 {
+                info!("Using unchecked factors as if they were verified");
+                product_factors = unchecked_factors;
             } else {
-                info!("Skipping factor {}", factor);
+                return Err(SceneError::InvalidEquation(
+                    "Unchecked factors present alongside verified ones".to_string(),
+                ));
             }
         }
 
@@ -434,8 +450,11 @@ impl SceneUtils {
             vec![0]
         };
         let projections = Self::express_in_basis(poly, &uni_coeffs, uni_var);
-        let reduced_projections = Self::remove_gaps(projections, &uni_coeffs);
-        Self::reduce_using_projections(reduced_projections.0, reduced_projections.1)
+        let (mut reduced_projections, new_coeffs) = Self::remove_gaps(projections, &uni_coeffs);
+        while reduced_projections.len() < new_coeffs.len() - 1 {
+            reduced_projections.push(Rc::new(Poly::Constant(0)));
+        }
+        Self::reduce_using_projections(reduced_projections, new_coeffs)
     }
 
     fn express_in_basis(poly: Rc<Poly>, uni_coeffs: &Vec<i64>, uni_var: u8) -> Vec<Rc<Poly>> {
@@ -529,6 +548,15 @@ impl SceneUtils {
 
         let max_len = projections.len().max(uni_coeffs.len());
         let mut i = 0;
+        info!(
+            "Projections before reduction (gcd = {}): \n{}",
+            gcd,
+            projections
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<String>>()
+                .join("\n")
+        );
         while i < max_len {
             // Add projection if it exists
             if i < projections.len() {
