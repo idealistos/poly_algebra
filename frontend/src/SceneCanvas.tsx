@@ -5,7 +5,7 @@ import { ShapeState, ObjectType, ArgumentType, getPointDBProperties, getOccupied
 import CanvasPointLayer from './CanvasPointLayer';
 import type { Shape, CanvasProperties, Action, ObjectProperties, PartialDBObject, DBObject, PlotData, TwoPointDistanceInvariantProperties, PointToLineDistanceInvariantProperties } from './types';
 import type { Vector2d } from 'konva/lib/types';
-import { checkLineAlreadyChosen, createShapeForDBObject, getDBPropertiesForLine } from './utils';
+import { checkLineAlreadyChosen, createShapeForDBObject, getDBObjectForExpressions, getDBPropertiesForLine } from './utils';
 import { IntersectionPointShape } from './shapes/IntersectionPointShape';
 import { LineBasedShape } from './shapes/LineBasedShape';
 
@@ -50,6 +50,7 @@ interface SceneCanvasProps {
   setCurrentActionStep: React.Dispatch<React.SetStateAction<number>>;
   stagedShapeName: string | null;
   setStagedShapeName: (name: string | null) => void;
+  validatedExpressions: string[];
   unsetAction: () => void;
   shapes: Shape[];
   setShapes: React.Dispatch<React.SetStateAction<Shape[]>>;
@@ -58,6 +59,7 @@ interface SceneCanvasProps {
   plotDataByLocusName: Record<string, PlotData>;
   setPlotDataByLocusName: React.Dispatch<React.SetStateAction<Record<string, PlotData>>>;
   fetchPlotPoints: (locusName: string) => Promise<void>;
+  insertComputableFields: (sceneId: number, dbObject: PartialDBObject) => Promise<PartialDBObject>;
 }
 
 function toCanvasProperties(view: View): CanvasProperties {
@@ -366,6 +368,7 @@ function SceneCanvas(
     setCurrentActionStep,
     stagedShapeName,
     setStagedShapeName,
+    validatedExpressions,
     unsetAction,
     shapes,
     setShapes,
@@ -374,17 +377,20 @@ function SceneCanvas(
     plotDataByLocusName,
     setPlotDataByLocusName,
     fetchPlotPoints,
+    insertComputableFields,
   }: SceneCanvasProps) {
   const [canvasProperties, setCanvasProperties] = useState<CanvasProperties | null>(null);
   const [stagedObject, setStagedObject] = useState<Shape | null>(null);
   const [objectHint, setObjectHint] = useState<Shape | null>(null);
   const [dbObjectForNextStep, setDBObjectForNextStep] = useState<PartialDBObject | null>(null);
+  const [fieldsComputed, setFieldsComputed] = useState(false);
 
   const unsetActionAndObjects = useCallback(() => {
     unsetAction();
     setStagedObject(null);
     setObjectHint(null);
     setDBObjectForNextStep(null);
+    setFieldsComputed(false);
   }, [unsetAction, setStagedObject, setObjectHint, setDBObjectForNextStep]);
 
   // Function to update shape highlighting based on target suggested names
@@ -435,6 +441,22 @@ function SceneCanvas(
       );
     }
   }, [shapes, setShapes]);
+
+  useEffect(() => {
+    const computeFields = async () => {
+      const dbObjectWithComputedFields = await insertComputableFields(sceneId!, dbObjectForNextStep!);
+      setDBObjectForNextStep(dbObjectWithComputedFields);
+      setFieldsComputed(true);
+    };
+    if (sceneId &&
+      dbObjectForNextStep &&
+      currentAction &&
+      currentActionStep > 0 &&
+      currentAction.arguments[currentActionStep - 1].types.length == 0 &&
+      !fieldsComputed) {
+      computeFields();
+    }
+  }, [currentAction, currentActionStep, sceneId, fieldsComputed, insertComputableFields, dbObjectForNextStep]);
 
   useEffect(() => {
     console.log(`SceneCanvas: sceneId changed to ${sceneId}`);
@@ -507,7 +529,7 @@ function SceneCanvas(
         }
       }
       if (found) {
-        // Check if the arguments list is empty
+        // Check if the arguments list is empty (e.g., ObjectType.Parameter)
         if (currentAction.arguments.length === 0) {
           // Create the shape immediately
           const dbObject = {
@@ -552,6 +574,18 @@ function SceneCanvas(
       setStagedShapeName(null);
     }
   }, [currentAction, stagedShapeName, shapes, setStagedShapeName, sceneId, setShapes, setStatusMessage, fetchPlotPoints, unsetAction, currentActionStep]);
+
+
+  useEffect(() => {
+    if (validatedExpressions.length > 0 && currentActionStep > 0
+      && dbObjectForNextStep == null
+      && currentAction
+      && currentAction.arguments[currentActionStep].types.length > 0
+      && stagedShapeName
+    ) {
+      setDBObjectForNextStep(getDBObjectForExpressions(stagedShapeName, validatedExpressions, currentAction));
+    }
+  }, [validatedExpressions, currentAction, currentActionStep, dbObjectForNextStep, stagedShapeName]);
 
   // Right-click handler
   const handleContextMenu = useCallback((e: KonvaEventObject<PointerEvent>) => {
@@ -685,12 +719,15 @@ function SceneCanvas(
           const objectType = currentAction!.object_types[0];
           const name = stagedShapeName || 'hint';
           if (prevHint) {
-            prevHint.points[currentActionStep] = logicalCoords;
+            prevHint.updatePoints(currentActionStep, logicalCoords);
             return prevHint.clone();
           }
+          console.log('Using dbObjectForNextStep', dbObjectForNextStep);
           const dbObject = dbObjectForNextStep ?? { name, object_type: objectType, properties: null };
           const objectHint = createShapeForDBObject(dbObject, shapes, currentActionStep);
-          objectHint.points[currentActionStep] = logicalCoords;
+          console.log('dbObject', dbObject);
+          console.log('objectHint', objectHint);
+          objectHint.updatePoints(currentActionStep, logicalCoords);
           objectHint.state = ShapeState.Hinted;
           return objectHint;
         });
@@ -715,13 +752,16 @@ function SceneCanvas(
   };
 
   // Mouse click handler
-  const handleMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+  const handleMouseDown = async (e: KonvaEventObject<MouseEvent>) => {
     if (e.evt.button === 0 && stagedObject) { // Left mouse button
       if (currentAction && currentActionStep < (currentAction.arguments.length ?? 0) - 1) {
-        setCurrentActionStep(prev => prev + 1);
+        console.log('New dbObjectForNextStep', stagedObject.getDBObjectForNextStep());
         setDBObjectForNextStep(stagedObject.getDBObjectForNextStep());
+        setStatusMessage(currentAction.arguments[currentActionStep + 1].hint);
+        setCurrentActionStep(prev => prev + 1);
         return;
       }
+
       stagedObject.state = ShapeState.Default;
       fetch(`http://localhost:8080/scenes/${sceneId}/objects`, {
         method: 'POST',

@@ -408,6 +408,45 @@ impl XYPoly {
         XYPoly(coefficients)
     }
 
+    /// Flips the polynomial by swapping the roles of x and y variables.
+    /// This transforms a polynomial f(x,y) into f(y,x).
+    pub fn flip(&self) -> XYPoly {
+        // For a polynomial f(x,y) = Σᵢ cᵢ(y) * xⁱ, flipping gives f(y,x) = Σᵢ cᵢ(x) * yⁱ
+        // This means we need to transpose the coefficient matrix
+
+        if self.0.is_empty() {
+            return XYPoly::new(vec![]);
+        }
+
+        // Find the maximum degree of any coefficient polynomial
+        let max_degree = self
+            .0
+            .iter()
+            .map(|poly| poly.get_degree())
+            .max()
+            .unwrap_or(0);
+
+        // Create the flipped polynomial with coefficients for each power of y
+        let mut flipped_coeffs = Vec::new();
+
+        for y_power in 0..=max_degree {
+            let mut coeff_poly = Vec::new();
+
+            // For each power of y, collect the coefficient of x^y_power from each original coefficient
+            for original_coeff in &self.0 {
+                if y_power <= original_coeff.get_degree() {
+                    coeff_poly.push(original_coeff[y_power]);
+                } else {
+                    coeff_poly.push(FInt::new(0.0));
+                }
+            }
+
+            flipped_coeffs.push(XPoly::new(coeff_poly));
+        }
+
+        XYPoly::new(flipped_coeffs)
+    }
+
     pub fn evaluate(&self, x: FInt, y: FInt) -> FInt {
         let mut result = FInt::new(0.0);
         let mut x_power = FInt::new(1.0);
@@ -1028,5 +1067,65 @@ mod tests {
         assert!(x_points
             .iter()
             .any(|x| (*x + FInt::new(-0.8)).abs_bound() < 1e-12));
+    }
+
+    #[test]
+    fn test_flip() {
+        // Test flipping a simple polynomial: 1 + 2y + 3x
+        let poly = XYPoly::new(vec![
+            XPoly::new(vec![FInt::new(1.0), FInt::new(2.0)]), // 1 + 2y
+            XPoly::new(vec![FInt::new(3.0)]),                 // 3
+        ]);
+
+        let flipped = poly.flip();
+
+        // The flipped polynomial should be: 1 + 2x + 3y
+        assert_eq!(flipped.0.len(), 2);
+
+        // First coefficient: 1 + 3x
+        assert_eq!(flipped.0[0].0.len(), 2);
+        assert_eq!(flipped.0[0].0[0], FInt::new(1.0));
+        assert_eq!(flipped.0[0].0[1], FInt::new(3.0));
+
+        // Second coefficient: 2
+        assert_eq!(flipped.0[1].0.len(), 1);
+        assert_eq!(flipped.0[1].0[0], FInt::new(2.0));
+
+        // Test flipping an empty polynomial
+        let empty_poly = XYPoly::new(vec![]);
+        let flipped_empty = empty_poly.flip();
+        assert_eq!(flipped_empty.0.len(), 0);
+
+        // Test flipping a constant polynomial: 5
+        let const_poly = XYPoly::new(vec![XPoly::new(vec![FInt::new(5.0)])]);
+        let flipped_const = const_poly.flip();
+        assert_eq!(flipped_const.0.len(), 1);
+        assert_eq!(flipped_const.0[0].0.len(), 1);
+        assert_eq!(flipped_const.0[0].0[0], FInt::new(5.0));
+
+        // Test flipping a more complex polynomial: 1 + 2y + 3y² + 4x + 5xy
+        let complex_poly = XYPoly::new(vec![
+            XPoly::new(vec![FInt::new(1.0), FInt::new(2.0), FInt::new(3.0)]), // 1 + 2y + 3y²
+            XPoly::new(vec![FInt::new(4.0), FInt::new(5.0)]),                 // 4 + 5y
+        ]);
+
+        let flipped_complex = complex_poly.flip();
+
+        // The flipped polynomial should be: 1 + 2x + 3x² + 4y + 5xy
+        assert_eq!(flipped_complex.0.len(), 3);
+
+        // First coefficient: 1 + 4x
+        assert_eq!(flipped_complex.0[0].0.len(), 2);
+        assert_eq!(flipped_complex.0[0].0[0], FInt::new(1.0));
+        assert_eq!(flipped_complex.0[0].0[1], FInt::new(4.0));
+
+        // Second coefficient: 2 + 5x
+        assert_eq!(flipped_complex.0[1].0.len(), 2);
+        assert_eq!(flipped_complex.0[1].0[0], FInt::new(2.0));
+        assert_eq!(flipped_complex.0[1].0[1], FInt::new(5.0));
+
+        // Third coefficient: 3
+        assert_eq!(flipped_complex.0[2].0.len(), 1);
+        assert_eq!(flipped_complex.0[2].0[0], FInt::new(3.0));
     }
 }

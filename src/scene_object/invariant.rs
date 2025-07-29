@@ -1,8 +1,7 @@
 use crate::scene_object::SceneError;
-use regex::Regex;
+use crate::scene_utils::SceneUtils;
 use serde_json::json;
 use serde_json::Value;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Invariant {
@@ -26,43 +25,13 @@ impl Invariant {
     }
 
     pub fn to_python(&self, _name: &str) -> String {
-        let formula = self.formula.replace("^", "**");
-        // Use regex to find standalone integers and wrap them with i()
-        let re = Regex::new(r"\(\s*(\d+)\s*/\s*(\d+)\s*\)").unwrap();
-        let formula = re.replace_all(&formula, "q(__$1, __$2)").to_string();
-        let re = Regex::new(r"\b\d+\b").unwrap();
-        let formula = re.replace_all(&formula, "i($0)").to_string();
-        let re = Regex::new(r"\b__(\d+)\b").unwrap();
-        let formula = re.replace_all(&formula, "$1").to_string();
-        format!("is_constant({})", formula)
+        let prepared_formula = SceneUtils::prepare_expression(&self.formula);
+        format!("is_constant({})", prepared_formula)
     }
 
     pub fn get_dependencies(&self) -> Vec<String> {
-        // Built-in identifiers that should be excluded
-        let built_ins: HashSet<&str> = ["d", "d_sqr"].iter().cloned().collect();
-
-        let re = Regex::new(r"[a-zA-Z][a-zA-Z0-9_.]*").unwrap();
-
-        // Extract all identifiers from the formula
-        let mut dependencies = HashSet::new();
-
-        for capture in re.find_iter(&self.formula) {
-            let identifier = capture.as_str();
-
-            // Remove the part after the first "." symbol
-            let base_identifier = if let Some(dot_pos) = identifier.find('.') {
-                &identifier[..dot_pos]
-            } else {
-                identifier
-            };
-
-            // Exclude built-in identifiers
-            if !built_ins.contains(base_identifier) {
-                dependencies.insert(base_identifier.to_string());
-            }
-        }
-
-        dependencies.into_iter().collect()
+        let identifiers = SceneUtils::extract_identifiers(&self.formula);
+        return identifiers.object_names;
     }
 }
 

@@ -1,4 +1,5 @@
 use actix_web::{delete, get, patch, post, web, HttpResponse, Responder};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Utc};
 use log::info;
 use sea_orm::ActiveValue::NotSet;
@@ -223,6 +224,49 @@ async fn get_actions() -> impl Responder {
             allowed_names: letters_x_to_z_then_t_to_w.clone(),
             group: "Points".to_string(),
         },
+        Action {
+            name: "ScaledVectorPoint".to_string(),
+            object_types: vec![ObjectType::ScaledVectorPoint.to_string()],
+            arguments: vec![
+                Argument {
+                    types: vec![],
+                    hint: "Enter the expression for the scaling coefficient k (1 of 3)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Choose the start point (A) of the reference vector (2 of 3)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Choose the end point (B) of the reference vector (3 of 3)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+            ],
+            description: "Scaled vector point: a point X defined by the vector relation AX = k AB for chosen A and B".to_string(),
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
+        },        
+        Action {
+            name: "ComputedPoint".to_string(),
+            object_types: vec![ObjectType::ComputedPoint.to_string()],
+            arguments: vec![
+                Argument {
+                    types: vec![],
+                    hint: "Enter the expression for the X coordinate of the point (may include parameters and reference objects) (1 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec![],
+                    hint: "Enter the expression for the Y coordinate of the point (may include parameters and reference objects) (2 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+            ],
+            description: "Computed point: a point defined by custom X and Y expressions".to_string(),
+            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            group: "Points".to_string(),
+        },        
         Action {
             name: "LineAB".to_string(),
             object_types: vec![ObjectType::LineAB.to_string()],
@@ -672,7 +716,7 @@ async fn rename_scene(
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, serde::Deserialize)]
 pub struct SceneInfo {
     pub id: i32,
     pub name: String,
@@ -697,6 +741,118 @@ async fn get_scenes(data: web::Data<AppState>) -> impl Responder {
     HttpResponse::Ok().json(scene_infos)
 }
 
+#[derive(Debug, Serialize)]
+pub struct InitialValuesResponse {
+    pub values: Vec<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ValidationResponse {
+    pub errors: Vec<String>,
+}
+
+#[get("/scenes/{scene_id}/initial")]
+async fn get_initial_values(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    query: web::Query<HashMap<String, String>>,
+) -> impl Responder {
+    let scene_id = path.into_inner();
+
+    // Get the json parameter from query
+    let json_param = match query.get("json") {
+        Some(json_str) => json_str,
+        None => {
+            return HttpResponse::BadRequest().json("Missing 'json' query parameter");
+        }
+    };
+
+    // Decode the base64-encoded JSON
+    let decoded_json = match URL_SAFE_NO_PAD.decode(json_param) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(_) => {
+                return HttpResponse::BadRequest().json("Invalid UTF-8 in decoded JSON");
+            }
+        },
+        Err(_) => {
+            return HttpResponse::BadRequest().json("Invalid base64 encoding");
+        }
+    };
+
+    // Parse the JSON array of expressions
+    let expressions: Vec<String> = match serde_json::from_str(&decoded_json) {
+        Ok(exprs) => exprs,
+        Err(_) => {
+            return HttpResponse::BadRequest()
+                .json("Invalid JSON format - expected array of strings");
+        }
+    };
+
+    // Load the scene
+    let scene_or_error = data.load_scene(&scene_id, SceneOptions::default()).await;
+    let scene = match scene_or_error {
+        SceneOrError::Scene(scene) => scene,
+        SceneOrError::Error(response) => return response,
+    };
+
+    match scene.evaluate_initial_values(&expressions) {
+        Ok(values) => HttpResponse::Ok().json(InitialValuesResponse { values }),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(format!("Failed to evaluate initial values: {}", e)),
+    }
+}
+
+#[get("/scenes/{scene_id}/validate")]
+async fn validate_expressions(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    query: web::Query<HashMap<String, String>>,
+) -> impl Responder {
+    let scene_id = path.into_inner();
+
+    let json_param = match query.get("json") {
+        Some(json) => json,
+        None => {
+            return HttpResponse::BadRequest().json("Missing 'json' query parameter");
+        }
+    };
+
+    let decoded_json = match URL_SAFE_NO_PAD.decode(json_param) {
+        Ok(decoded) => decoded,
+        Err(_) => {
+            return HttpResponse::BadRequest().json("Invalid base64 encoding in 'json' parameter");
+        }
+    };
+
+    let expressions: Vec<String> =
+        match serde_json::from_str(&String::from_utf8_lossy(&decoded_json)) {
+            Ok(expressions) => expressions,
+            Err(e) => {
+                return HttpResponse::BadRequest().json(format!("Invalid JSON format: {}", e));
+            }
+        };
+
+    let scene_or_error = data.load_scene(&scene_id, SceneOptions::default()).await;
+    let scene = match scene_or_error {
+        SceneOrError::Scene(scene) => scene,
+        SceneOrError::Error(response) => {
+            return response;
+        }
+    };
+
+    // Validate each expression and collect all errors
+    let mut all_errors = Vec::new();
+    for (index, expression) in expressions.iter().enumerate() {
+        let errors = scene.validate_expression(expression.clone());
+        for error in errors {
+            all_errors.push(format!("Expression {}: {}", index + 1, error));
+        }
+    }
+
+    HttpResponse::Ok().json(ValidationResponse { errors: all_errors })
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(get_actions)
         .service(get_scene)
@@ -707,5 +863,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(get_plot)
         .service(create_scene)
         .service(rename_scene)
+        .service(get_initial_values)
+        .service(validate_expressions)
         .service(get_scenes);
 }

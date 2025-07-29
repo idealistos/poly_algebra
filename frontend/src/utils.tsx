@@ -11,7 +11,7 @@ import { SlidingPointShape } from "./shapes/SlidingPointShape";
 import { ParameterShape } from "./shapes/ParameterShape";
 import { TwoPointDistanceInvariantShape } from "./shapes/TwoPointDistanceInvariantShape";
 import { PointToLineDistanceInvariantShape } from "./shapes/PointToLineDistanceInvariantShape";
-import type { ObjectProperties, PartialDBObject, Shape } from "./types";
+import type { Action, ObjectProperties, PartialDBObject, Shape } from "./types";
 import type { Vector2d } from 'konva/lib/types';
 import Color from "color";
 import { TwoLineAngleInvariantShape } from "./shapes/TwoLineAngleInvariantShape";
@@ -21,6 +21,8 @@ import { PpToLineShape } from "./shapes/PpToLineShape";
 import { ReflectionShape } from "./shapes/ReflectionShape";
 import { ProjectionShape } from "./shapes/ProjectionShape";
 import { PlToLineShape } from "./shapes/PlToLineShape";
+import { ComputedPointShape } from './shapes/ComputedPointShape';
+import { ScaledVectorPointShape } from "./shapes/ScaledVectorPointShape";
 
 // Plot colors for locus objects (10 colors for different locus ordinals)
 export const PLOT_COLORS = [
@@ -66,6 +68,10 @@ export function getPointDescription(point: string | null): string {
         return `(${point})`;
     }
     return point;
+}
+
+export function getActionTitle(action: Action): string {
+    return action.description.split(":")[0];
 }
 
 export function distanceToLineSegment(point: Vector2d, segmentStart: Vector2d, segmentEnd: Vector2d): number {
@@ -127,6 +133,14 @@ export function createShapeForDBObject(dbObject: PartialDBObject, shapes: Shape[
             } else {
                 return new ReflectionShape(dbObject, shapes);
             }
+        case ObjectType.ScaledVectorPoint:
+            if (currentActionStep === 1) {
+                return new InitialPointShape(dbObject, shapes);
+            } else {
+                return new ScaledVectorPointShape(dbObject, shapes);
+            }
+        case ObjectType.ComputedPoint:
+            return new ComputedPointShape(dbObject);
         case ObjectType.LineAB:
             if (currentActionStep === 0) {
                 return new InitialPointShape(dbObject, shapes);
@@ -183,6 +197,32 @@ export function createShapeForDBObject(dbObject: PartialDBObject, shapes: Shape[
     }
 }
 
+export function getDBObjectForExpressions(name: string, expressions: string[], action: Action): PartialDBObject {
+    const objectType = action.object_types[0];
+    switch (objectType) {
+        case ObjectType.ScaledVectorPoint:
+            return {
+                name,
+                object_type: ObjectType.ScaledVectorPoint,
+                properties: { k: expressions[0] },
+            };
+        case ObjectType.ComputedPoint:
+            return {
+                name,
+                object_type: ObjectType.ComputedPoint,
+                properties: { x_expr: expressions[0], y_expr: expressions[1] },
+            };
+        case ObjectType.Invariant:
+            return {
+                name,
+                object_type: ObjectType.Invariant,
+                properties: { formula: expressions[0] },
+            };
+        default:
+            throw new Error(`Object type isn't defined with expressions: ${objectType}`);
+    }
+}
+
 export function getDBPropertiesForLine(shape: LineBasedShape, objectType: ObjectType, actionStep: number): Partial<ObjectProperties> {
     switch (objectType) {
         case ObjectType.PpToLine:
@@ -190,6 +230,7 @@ export function getDBPropertiesForLine(shape: LineBasedShape, objectType: Object
         case ObjectType.PointToLineDistanceInvariant:
         case ObjectType.Projection:
         case ObjectType.Reflection:
+        case ObjectType.ComputedPoint:
             return {
                 line: shape.dbObject.name,
             };

@@ -10,6 +10,7 @@ import type { PpBisectorShape } from './PpBisectorShape';
 import type { PpToLineShape } from './PpToLineShape';
 import type { PlToLineShape } from './PlToLineShape';
 import type { SlidingPointShape } from './SlidingPointShape';
+import type { ScaledVectorPointProperties } from '../types';
 
 export function CanvasFixedPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
     const coords = shape.points[0];
@@ -62,6 +63,225 @@ export function CanvasFreePoint({ shape, getPhysicalCoords }: { shape: Shape; ge
             <Circle x={px} y={py} radius={8} stroke={color} strokeWidth={2} />
             <Circle x={px} y={py} radius={4} fill={color} />
             <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+        </>
+    );
+}
+
+export function CanvasComputedPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const coords = shape.points[0];
+    if (!coords) return null;
+    const { px, py } = getPhysicalCoords(coords);
+    const color = getColor(shape);
+    const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
+    return (
+        <>
+            {/* Glow */}
+            {isSuggested && (
+                <Circle
+                    x={px}
+                    y={py}
+                    radius={14}
+                    fill="#ffb6c1"
+                    opacity={0.4}
+                />
+            )}
+            {/* Central point */}
+            <Circle x={px} y={py} radius={3} fill={color} />
+            {/* 3 spiral arms using SVG paths - positioned relative to the point */}
+            <Path data={`M${px - 3} ${py} A8 8 0 0 1 ${px + 9} ${py}`} stroke={color} strokeWidth={1.2} />
+            <Path data={`M${px + 1.5} ${py - 2.598} A8 8 0 0 1 ${px - 4.5} ${py + 7.794}`} stroke={color} strokeWidth={1.2} />
+            <Path data={`M${px + 1.5} ${py + 2.598} A8 8 0 0 1 ${px - 4.5} ${py - 7.794}`} stroke={color} strokeWidth={1.2} />
+            <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+        </>
+    );
+}
+
+export function CanvasScaledVectorPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    if (shape.points.length < 3) return null;
+
+    const point0 = getPhysicalCoords(shape.points[0]);
+    const point1 = getPhysicalCoords(shape.points[1]);
+    const point2 = getPhysicalCoords(shape.points[2]);
+
+    const color = getColor(shape);
+    const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
+    const isDefault = shape.state === ShapeState.Default;
+
+    // Get k_value from properties
+    const properties = shape.dbObject.properties as ScaledVectorPointProperties;
+    const kValue = properties?.k_value;
+
+    // Determine if we should show the second dashed line
+    const shouldShowSecondDashedLine = kValue !== undefined && kValue < 1.0;
+
+    // Determine the color for the second dashed line and related elements
+    const secondLineColor = (isDefault || isSuggested) ? 'gray' : color;
+
+    // Determine the start point for the second dashed line
+    const secondDashedLineStart = kValue < 0 ? point0 : point2;
+
+    // Calculate vector directions for the line segments
+    const vectorFrom0To2 = {
+        dx: point2.px - point0.px,
+        dy: point2.py - point0.py
+    };
+
+    const vectorFrom0To1 = {
+        dx: point1.px - point0.px,
+        dy: point1.py - point0.py
+    };
+
+    // Normalize vectors
+    const length0To1 = Math.sqrt(vectorFrom0To1.dx * vectorFrom0To1.dx + vectorFrom0To1.dy * vectorFrom0To1.dy);
+    const length0To2 = Math.sqrt(vectorFrom0To2.dx * vectorFrom0To2.dx + vectorFrom0To2.dy * vectorFrom0To2.dy);
+
+    if (length0To1 === 0) return null; // Avoid division by zero
+
+    const normalized0To1 = {
+        dx: vectorFrom0To1.dx / length0To1,
+        dy: vectorFrom0To1.dy / length0To1
+    };
+
+    // Calculate perpendicular vector
+    const perp = {
+        dx: -normalized0To1.dy,
+        dy: normalized0To1.dx
+    };
+    const p1ArrowStart = {
+        x: point1.px - normalized0To1.dx * 3,
+        y: point1.py - normalized0To1.dy * 3
+    }
+    const p1ArrowEndProjection = {
+        x: point1.px - normalized0To1.dx * 11,
+        y: point1.py - normalized0To1.dy * 11,
+    }
+
+    let p2ArrowStart = null;
+    let p2ArrowEndProjection = null;
+    if (length0To2 !== 0) {
+        if (kValue !== undefined && kValue > 0.0) {
+            p2ArrowStart = {
+                x: point2.px - normalized0To1.dx * 3,
+                y: point2.py - normalized0To1.dy * 3
+            }
+            p2ArrowEndProjection = {
+                x: point2.px - normalized0To1.dx * 11,
+                y: point2.py - normalized0To1.dy * 11,
+            }
+        } else {
+            p2ArrowStart = {
+                x: point2.px + normalized0To1.dx * 3,
+                y: point2.py + normalized0To1.dy * 3
+            }
+            p2ArrowEndProjection = {
+                x: point2.px + normalized0To1.dx * 11,
+                y: point2.py + normalized0To1.dy * 11,
+            }
+        }
+    }
+
+    return (
+        <>
+            {/* Glow around point2 */}
+            {isSuggested && (
+                <Circle
+                    x={point2.px}
+                    y={point2.py}
+                    radius={14}
+                    fill="#ffb6c1"
+                    opacity={0.4}
+                />
+            )}
+
+            {/* First dashed line: from point0 to point2 */}
+            <Line
+                points={[point0.px, point0.py, point2.px, point2.py]}
+                stroke={color}
+                strokeWidth={1}
+            />
+
+            {/* Second dashed line: conditional based on k_value */}
+            {shouldShowSecondDashedLine && (
+                <Line
+                    points={[secondDashedLineStart.px, secondDashedLineStart.py, point1.px, point1.py]}
+                    stroke={secondLineColor}
+                    strokeWidth={1}
+                    dash={[5, 5]}
+                />
+            )}
+
+            {/* Vector line segments at point2 (as seen from point0) */}
+            {p2ArrowStart && p2ArrowEndProjection &&
+                <>
+                    <Line
+                        points={[
+                            p2ArrowStart.x,
+                            p2ArrowStart.y,
+                            p2ArrowEndProjection.x + perp.dx * 3,
+                            p2ArrowEndProjection.y + perp.dy * 3
+                        ]}
+                        stroke={color}
+                        strokeWidth={1.5}
+                    />
+                    <Line
+                        points={[
+                            p2ArrowStart.x,
+                            p2ArrowStart.y,
+                            p2ArrowEndProjection.x - perp.dx * 3,
+                            p2ArrowEndProjection.y - perp.dy * 3
+                        ]}
+                        stroke={color}
+                        strokeWidth={1.5}
+                    />
+                </>}
+
+            <Line
+                points={[
+                    p1ArrowStart.x,
+                    p1ArrowStart.y,
+                    p1ArrowEndProjection.x + perp.dx * 3,
+                    p1ArrowEndProjection.y + perp.dy * 3
+                ]}
+                stroke={secondLineColor}
+                strokeWidth={1.5}
+            />
+            <Line
+                points={[
+                    p1ArrowStart.x,
+                    p1ArrowStart.y,
+                    p1ArrowEndProjection.x - perp.dx * 3,
+                    p1ArrowEndProjection.y - perp.dy * 3
+                ]}
+                stroke={secondLineColor}
+                strokeWidth={1.5}
+            />
+
+            {/* Filled circle at point2 */}
+            <Circle
+                x={point2.px}
+                y={point2.py}
+                radius={3}
+                fill={color}
+            />
+
+            {/* Non-filled circles at point0 and point1 */}
+            <Circle
+                x={point0.px}
+                y={point0.py}
+                radius={3}
+                stroke={secondLineColor}
+                strokeWidth={1.5}
+            />
+            <Circle
+                x={point1.px}
+                y={point1.py}
+                radius={3}
+                stroke={secondLineColor}
+                strokeWidth={1.5}
+            />
+
+            {/* Text label */}
+            <Text x={point2.px + 10} y={point2.py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
         </>
     );
 }
@@ -1113,7 +1333,6 @@ export function CanvasPlToLine({ shape, getPhysicalCoords }: { shape: PlToLineSh
 
 export function CanvasLocus({ shape, getPhysicalCoords }: { shape: LocusShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
     const coords = shape.points[0];
-    console.log("LocusShape", shape);
     if (!coords) return null;
     const { px, py } = getPhysicalCoords(coords);
 
@@ -1146,7 +1365,7 @@ export function CanvasIntersectionPoint({ shape, getPhysicalCoords }: { shape: S
                 />
             )}
             {/* Main circle - identical to CanvasInitialPoint */}
-            <Circle x={px} y={py} radius={5} fill={color} />
+            <Circle x={px} y={py} radius={3} fill={color} />
             {/* X mark for hinted state */}
             {isHinted && (
                 <>
@@ -1811,7 +2030,7 @@ export function CanvasReflection({ shape, getPhysicalCoords }: { shape: Shape; g
             {/* Dot at p1 (reflected point) */}
             <Circle x={p1.px} y={p1.py} radius={3} fill={color} />
             {/* Dot at p0 (original point) */}
-            <Circle x={p0.px} y={p0.py} radius={3} stroke={lineColor} strokeWidth={1} />
+            <Circle x={p0.px} y={p0.py} radius={3} stroke={lineColor} strokeWidth={1.5} />
             {/* Perpendicular symbol at midpoint */}
             <Line
                 points={[baseX, baseY, perp1X, perp1Y]}

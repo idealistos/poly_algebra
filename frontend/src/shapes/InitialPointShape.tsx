@@ -10,20 +10,22 @@ import { parsePoint } from '../utils';
 export class InitialPointShape extends BaseShape {
     constructor(dbObject: PartialDBObject, shapes: Shape[]) {
         super(dbObject);
-        console.log("InitialPointShape", dbObject);
         this.points = [];
         let pointStr;
         switch (this.dbObject.object_type) {
             case ObjectType.Midpoint:
+            case ObjectType.ScaledVectorPoint:
             case ObjectType.LineAB:
             case ObjectType.TwoPointDistanceInvariant:
-                pointStr = (this.dbObject.properties as Partial<LineABProperties>)?.point1; break;
+                pointStr = (this.dbObject.properties as { point1?: string })?.point1;
+                break;
             case ObjectType.PpToLine:
             case ObjectType.PlToLine:
             case ObjectType.PointToLineDistanceInvariant:
             case ObjectType.Projection:
             case ObjectType.Reflection:
-                pointStr = (this.dbObject.properties as Partial<PointToLineDistanceInvariantProperties>)?.point; break;
+                pointStr = (this.dbObject.properties as { point?: string })?.point;
+                break;
             default:
                 pointStr = null;
         }
@@ -54,6 +56,7 @@ export class InitialPointShape extends BaseShape {
     getDBObjectForNextStep(): PartialDBObject | null {
         switch (this.dbObject.object_type) {
             case ObjectType.Midpoint:
+            case ObjectType.ScaledVectorPoint:
             case ObjectType.LineAB:
             case ObjectType.PpBisector:
             case ObjectType.TwoPointDistanceInvariant:

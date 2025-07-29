@@ -46,6 +46,10 @@ export abstract class BaseShape implements Shape {
         return this.distanceToPoint(point) < delta;
     }
 
+    updatePoints(step: number, point: Vector2d): void {
+        this.points[step] = point;
+    }
+
     clone(): Shape {
         const shape = this.createClone();
         shape.state = this.state;

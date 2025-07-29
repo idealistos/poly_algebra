@@ -8,6 +8,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 // Module declarations for split files
+pub mod computed_point;
 pub mod fixed_point;
 pub mod free_point;
 pub mod intersection_point;
@@ -21,11 +22,13 @@ pub mod pp_bisector;
 pub mod pp_to_line;
 pub mod projection;
 pub mod reflection;
+pub mod scaled_vector_point;
 pub mod sliding_point;
 pub mod two_line_angle_invariant;
 pub mod two_point_distance_invariant;
 
 // Re-export the structs from the modules
+use computed_point::ComputedPoint;
 use fixed_point::FixedPoint;
 use free_point::FreePoint;
 use intersection_point::IntersectionPoint;
@@ -39,6 +42,7 @@ use pp_bisector::PpBisector;
 use pp_to_line::PpToLine;
 use projection::Projection;
 use reflection::Reflection;
+use scaled_vector_point::ScaledVectorPoint;
 use sliding_point::SlidingPoint;
 use two_line_angle_invariant::TwoLineAngleInvariant;
 use two_point_distance_invariant::TwoPointDistanceInvariant;
@@ -70,6 +74,8 @@ pub enum SceneObject {
     SlidingPoint(SlidingPoint),
     Projection(Projection),
     Reflection(Reflection),
+    ScaledVectorPoint(ScaledVectorPoint),
+    ComputedPoint(ComputedPoint),
     LineAB(LineAB),
     PpBisector(PpBisector),
     PpToLine(PpToLine),
@@ -94,12 +100,18 @@ impl SceneObject {
             ObjectType::SlidingPoint => {
                 Ok(SceneObject::SlidingPoint(SlidingPoint::new(properties)?))
             }
+            ObjectType::Projection => Ok(SceneObject::Projection(Projection::new(properties)?)),
+            ObjectType::Reflection => Ok(SceneObject::Reflection(Reflection::new(properties)?)),
+            ObjectType::ScaledVectorPoint => Ok(SceneObject::ScaledVectorPoint(
+                ScaledVectorPoint::new(properties)?,
+            )),
+            ObjectType::ComputedPoint => {
+                Ok(SceneObject::ComputedPoint(ComputedPoint::new(properties)?))
+            }
             ObjectType::LineAB => Ok(SceneObject::LineAB(LineAB::new(properties)?)),
             ObjectType::PpBisector => Ok(SceneObject::PpBisector(PpBisector::new(properties)?)),
             ObjectType::PpToLine => Ok(SceneObject::PpToLine(PpToLine::new(properties)?)),
             ObjectType::PlToLine => Ok(SceneObject::PlToLine(PlToLine::new(properties)?)),
-            ObjectType::Projection => Ok(SceneObject::Projection(Projection::new(properties)?)),
-            ObjectType::Reflection => Ok(SceneObject::Reflection(Reflection::new(properties)?)),
             ObjectType::Parameter => Ok(SceneObject::Parameter),
             ObjectType::TwoPointDistanceInvariant => Ok(SceneObject::TwoPointDistanceInvariant(
                 TwoPointDistanceInvariant::new(properties)?,
@@ -124,12 +136,14 @@ impl SceneObject {
             SceneObject::Midpoint(_) => ObjectType::Midpoint,
             SceneObject::IntersectionPoint(_) => ObjectType::IntersectionPoint,
             SceneObject::SlidingPoint(_) => ObjectType::SlidingPoint,
+            SceneObject::Projection(_) => ObjectType::Projection,
+            SceneObject::Reflection(_) => ObjectType::Reflection,
+            SceneObject::ScaledVectorPoint(_) => ObjectType::ScaledVectorPoint,
+            SceneObject::ComputedPoint(_) => ObjectType::ComputedPoint,
             SceneObject::LineAB(_) => ObjectType::LineAB,
             SceneObject::PpBisector(_) => ObjectType::PpBisector,
             SceneObject::PpToLine(_) => ObjectType::PpToLine,
             SceneObject::PlToLine(_) => ObjectType::PlToLine,
-            SceneObject::Projection(_) => ObjectType::Projection,
-            SceneObject::Reflection(_) => ObjectType::Reflection,
             SceneObject::Parameter => ObjectType::Parameter,
             SceneObject::TwoPointDistanceInvariant(_) => ObjectType::TwoPointDistanceInvariant,
             SceneObject::PointToLineDistanceInvariant(_) => {
@@ -148,12 +162,14 @@ impl SceneObject {
             SceneObject::Midpoint(m) => m.get_properties(),
             SceneObject::IntersectionPoint(p) => p.get_properties(),
             SceneObject::SlidingPoint(p) => p.get_properties(),
+            SceneObject::Projection(p) => p.get_properties(),
+            SceneObject::Reflection(p) => p.get_properties(),
+            SceneObject::ScaledVectorPoint(p) => p.get_properties(),
+            SceneObject::ComputedPoint(p) => p.get_properties(),
             SceneObject::LineAB(l) => l.get_properties(),
             SceneObject::PpBisector(p) => p.get_properties(),
             SceneObject::PpToLine(p) => p.get_properties(),
             SceneObject::PlToLine(p) => p.get_properties(),
-            SceneObject::Projection(p) => p.get_properties(),
-            SceneObject::Reflection(p) => p.get_properties(),
             SceneObject::Parameter => Value::Null,
             SceneObject::TwoPointDistanceInvariant(t) => t.get_properties(),
             SceneObject::PointToLineDistanceInvariant(p) => p.get_properties(),
@@ -170,13 +186,18 @@ impl SceneObject {
             SceneObject::Midpoint(m) => m.to_python(name),
             SceneObject::IntersectionPoint(p) => p.to_python(name),
             SceneObject::SlidingPoint(p) => p.to_python(name),
+            SceneObject::Projection(p) => p.to_python(name),
+            SceneObject::Reflection(p) => p.to_python(name),
+            SceneObject::ScaledVectorPoint(p) => p.to_python(name),
+            SceneObject::ComputedPoint(p) => p.to_python(name),
             SceneObject::LineAB(l) => l.to_python(name),
             SceneObject::PpBisector(p) => p.to_python(name),
             SceneObject::PpToLine(p) => p.to_python(name),
             SceneObject::PlToLine(p) => p.to_python(name),
-            SceneObject::Projection(p) => p.to_python(name),
-            SceneObject::Reflection(p) => p.to_python(name),
-            SceneObject::Parameter => format!("{} = Value(next_var(), 0)", name),
+            SceneObject::Parameter => format!(
+                "{} = Value(next_var(), initial=0, float_initial=maybe_float_initial(lambda: 0.0))",
+                name
+            ),
             SceneObject::TwoPointDistanceInvariant(t) => t.to_python(name),
             SceneObject::PointToLineDistanceInvariant(p) => p.to_python(name),
             SceneObject::TwoLineAngleInvariant(t) => t.to_python(name),
@@ -192,12 +213,14 @@ impl SceneObject {
             SceneObject::Midpoint(m) => m.get_dependencies(),
             SceneObject::IntersectionPoint(p) => p.get_dependencies(),
             SceneObject::SlidingPoint(p) => p.get_dependencies(),
+            SceneObject::Projection(p) => p.get_dependencies(),
+            SceneObject::Reflection(p) => p.get_dependencies(),
+            SceneObject::ScaledVectorPoint(p) => p.get_dependencies(),
+            SceneObject::ComputedPoint(p) => p.get_dependencies(),
             SceneObject::LineAB(l) => l.get_dependencies(),
             SceneObject::PpBisector(p) => p.get_dependencies(),
             SceneObject::PpToLine(p) => p.get_dependencies(),
             SceneObject::PlToLine(p) => p.get_dependencies(),
-            SceneObject::Projection(p) => p.get_dependencies(),
-            SceneObject::Reflection(p) => p.get_dependencies(),
             SceneObject::Parameter => Vec::new(),
             SceneObject::TwoPointDistanceInvariant(t) => t.get_dependencies(),
             SceneObject::PointToLineDistanceInvariant(p) => p.get_dependencies(),
@@ -217,16 +240,18 @@ pub enum ObjectType {
     SlidingPoint,
     Projection,
     Reflection,
+    ScaledVectorPoint,
+    ComputedPoint,
     LineAB,
     PpBisector,
     PpToLine,
     PlToLine,
+    Parameter,
     TwoPointDistanceInvariant,
     PointToLineDistanceInvariant,
     TwoLineAngleInvariant,
     Invariant,
     Locus,
-    Parameter,
 }
 
 impl FromStr for ObjectType {
@@ -241,16 +266,18 @@ impl FromStr for ObjectType {
             "SlidingPoint" => Ok(ObjectType::SlidingPoint),
             "Projection" => Ok(ObjectType::Projection),
             "Reflection" => Ok(ObjectType::Reflection),
+            "ScaledVectorPoint" => Ok(ObjectType::ScaledVectorPoint),
+            "ComputedPoint" => Ok(ObjectType::ComputedPoint),
             "LineAB" => Ok(ObjectType::LineAB),
             "PpBisector" => Ok(ObjectType::PpBisector),
             "PpToLine" => Ok(ObjectType::PpToLine),
             "PlToLine" => Ok(ObjectType::PlToLine),
+            "Parameter" => Ok(ObjectType::Parameter),
             "TwoPointDistanceInvariant" => Ok(ObjectType::TwoPointDistanceInvariant),
             "PointToLineDistanceInvariant" => Ok(ObjectType::PointToLineDistanceInvariant),
             "TwoLineAngleInvariant" => Ok(ObjectType::TwoLineAngleInvariant),
             "Invariant" => Ok(ObjectType::Invariant),
             "Locus" => Ok(ObjectType::Locus),
-            "Parameter" => Ok(ObjectType::Parameter),
             _ => Err(SceneError::InvalidObjectType(s.to_string())),
         }
     }
@@ -266,16 +293,18 @@ impl Display for ObjectType {
             ObjectType::SlidingPoint => "SlidingPoint".to_string(),
             ObjectType::Projection => "Projection".to_string(),
             ObjectType::Reflection => "Reflection".to_string(),
+            ObjectType::ScaledVectorPoint => "ScaledVectorPoint".to_string(),
+            ObjectType::ComputedPoint => "ComputedPoint".to_string(),
             ObjectType::LineAB => "LineAB".to_string(),
             ObjectType::PpBisector => "PpBisector".to_string(),
             ObjectType::PpToLine => "PpToLine".to_string(),
             ObjectType::PlToLine => "PlToLine".to_string(),
+            ObjectType::Parameter => "Parameter".to_string(),
             ObjectType::TwoPointDistanceInvariant => "TwoPointDistanceInvariant".to_string(),
             ObjectType::PointToLineDistanceInvariant => "PointToLineDistanceInvariant".to_string(),
             ObjectType::TwoLineAngleInvariant => "TwoLineAngleInvariant".to_string(),
             ObjectType::Invariant => "Invariant".to_string(),
             ObjectType::Locus => "Locus".to_string(),
-            ObjectType::Parameter => "Parameter".to_string(),
         };
         write!(f, "{}", string_value)
     }
@@ -287,6 +316,16 @@ mod tests {
 
     #[test]
     fn test_scene_object_conversion() {
+        let props = json!({
+            "x_expr": "A.x + 1",
+            "y_expr": "B.y * 2",
+            "value": "3, 4"
+        });
+        let obj = SceneObject::from_properties(ObjectType::ComputedPoint, props.clone()).unwrap();
+        assert!(matches!(obj, SceneObject::ComputedPoint(_)));
+        assert_eq!(obj.get_type(), ObjectType::ComputedPoint);
+        assert_eq!(obj.get_properties(), props);
+
         let props = json!({
             "value": "10, 20"
         });
@@ -449,16 +488,10 @@ mod tests {
             point1: "P1".to_string(),
             point2: "P2".to_string(),
         };
-        assert_eq!(
-            midpoint.to_python("M1"),
-            "M1 = Point(Value(next_var(), initial=Value(next_var())), Value(next_var(), initial=Value(next_var())))\nis_zero_vector((P1 - M1) + (P2 - M1))"
-        );
+        assert_eq!(midpoint.to_python("M1"), "M1 = Midpoint(P1, P2)");
 
         let obj = SceneObject::Midpoint(midpoint);
-        assert_eq!(
-            obj.to_python("M1"),
-            "M1 = Point(Value(next_var(), initial=Value(next_var())), Value(next_var(), initial=Value(next_var())))\nis_zero_vector((P1 - M1) + (P2 - M1))"
-        );
+        assert_eq!(obj.to_python("M1"), "M1 = Midpoint(P1, P2)");
     }
 
     #[test]
@@ -599,7 +632,6 @@ mod tests {
             "B".to_string(),
             "C".to_string(),
             "D".to_string(),
-            "e".to_string(),
         ];
         expected.sort();
         let mut actual = inv.get_dependencies();

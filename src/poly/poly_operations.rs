@@ -22,6 +22,7 @@ pub trait PolyOperations {
     fn add_poly_scaled(&mut self, poly: &Poly, factor: i64);
     fn multiply(&self, poly: &Poly) -> Poly;
     fn extract_factor_and_remainder(self: &Rc<Self>, v: u8, degree: u32) -> (Rc<Poly>, Rc<Poly>);
+    fn decompose(self: &Rc<Self>, v: u8) -> Vec<Rc<Poly>>;
     fn single_out(&self, v: u8) -> SingleOutResult;
     fn substitute_linear(&self, v: u8, poly: Rc<Poly>, k: i64) -> Poly;
     fn get_derivative(&self, v: u8) -> Poly;
@@ -186,6 +187,52 @@ impl PolyOperations for Poly {
                 factor.cleanup();
                 remainder.cleanup();
                 (Rc::new(factor), Rc::new(remainder))
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn decompose(self: &Rc<Self>, v: u8) -> Vec<Rc<Poly>> {
+        match &**self {
+            Poly::Constant(_) => {
+                // For constants, return the constant as the only projection
+                vec![self.clone()]
+            }
+            Poly::Nested(v1, _) if *v1 > v => {
+                // For higher variables, return the polynomial as the only projection
+                vec![self.clone()]
+            }
+            Poly::Nested(v1, polys1) if *v1 < v => {
+                // For lower variables, decompose each sub-polynomial and combine
+                let mut result = Vec::new();
+                // self = Sum poly_k * v1^k, v1 < v
+                for (k, poly) in polys1.iter().enumerate() {
+                    // poly_k = Sum proj_i * v^i
+                    let sub_projections = poly.decompose(v);
+                    for (i, sub_proj) in sub_projections.iter().enumerate() {
+                        let mut coefficients = Vec::new();
+                        for _ in 0..k {
+                            coefficients.push(Rc::new(Poly::Constant(0)));
+                        }
+                        coefficients.push(sub_proj.clone());
+                        let to_add = Rc::new(Poly::Nested(*v1, coefficients));
+                        if i < result.len() {
+                            let result_mut: &mut Poly = Rc::make_mut(&mut result[i]);
+                            result_mut.add_poly_scaled(&to_add, 1);
+                        } else {
+                            result.push(to_add);
+                        }
+                    }
+                }
+                result
+            }
+            Poly::Nested(v1, polys1) if *v1 == v => {
+                // For the target variable, return the coefficients directly
+                let mut result = Vec::new();
+                for poly in polys1 {
+                    result.push(poly.clone());
+                }
+                result
             }
             _ => unreachable!(),
         }
@@ -513,8 +560,6 @@ impl Poly {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const GP_PATH: &str = r"C:\progs\pari\gp.exe";
 
     #[test]
     fn test_scale() {
@@ -1120,5 +1165,82 @@ mod tests {
         assert_eq!(result.gcd, poly1);
         assert_eq!(*result.reduced1, Poly::Constant(1));
         assert_eq!(*result.reduced2, Poly::Constant(1));
+    }
+
+    #[test]
+    fn test_decompose_constant() {
+        let poly = Rc::new(Poly::Constant(5));
+        let result = poly.decompose(0); // variable 'a'
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], Rc::new(Poly::Constant(5)));
+    }
+
+    #[test]
+    fn test_decompose_simple_polynomial() {
+        let poly = Rc::new(Poly::new("1 + 2*a + 3*a^2").unwrap());
+        let result = poly.decompose(0); // variable 'a'
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], Rc::new(Poly::Constant(1))); // constant term
+        assert_eq!(result[1], Rc::new(Poly::Constant(2))); // coefficient of a
+        assert_eq!(result[2], Rc::new(Poly::Constant(3))); // coefficient of a^2
+    }
+
+    #[test]
+    fn test_decompose_higher_variable() {
+        let poly = Rc::new(Poly::new("1 + 2*b + 3*b^2").unwrap());
+        let result = poly.decompose(0); // variable 'a' (lower than 'b')
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], poly); // should return the whole polynomial
+    }
+
+    #[test]
+    fn test_decompose_lower_variable() {
+        let poly = Rc::new(Poly::new("1 + 2*a + 3*a^2").unwrap());
+        let result = poly.decompose(1); // variable 'b' (higher than 'a')
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], poly); // should return the whole polynomial
+    }
+
+    #[test]
+    fn test_decompose_multivariate() {
+        let poly = Rc::new(Poly::new("1 + 2*a + 3*b + 4*a*b").unwrap());
+        let result = poly.decompose(0); // variable 'a'
+        assert_eq!(result.len(), 2);
+        // result[0] should be 1 + 3*b (constant term with respect to 'a')
+        // result[1] should be 2 + 4*b (coefficient of 'a')
+        assert_eq!(result[0], Rc::new(Poly::new("1 + 3*b").unwrap()));
+        assert_eq!(result[1], Rc::new(Poly::new("2 + 4*b").unwrap()));
+    }
+
+    #[test]
+    fn test_decompose_complex_nested() {
+        let poly = Rc::new(Poly::new("1 + 2*a + 3*a^2 + 4*b + 5*a*b + 6*a^2*b").unwrap());
+        let result = poly.decompose(0); // variable 'a'
+        assert_eq!(result.len(), 3);
+        // result[0] should be 1 + 4*b (constant term with respect to 'a')
+        // result[1] should be 2 + 5*b (coefficient of 'a')
+        // result[2] should be 3 + 6*b (coefficient of 'a^2')
+        assert_eq!(result[0], Rc::new(Poly::new("1 + 4*b").unwrap()));
+        assert_eq!(result[1], Rc::new(Poly::new("2 + 5*b").unwrap()));
+        assert_eq!(result[2], Rc::new(Poly::new("3 + 6*b").unwrap()));
+    }
+
+    #[test]
+    fn test_decompose_zero_polynomial() {
+        let poly = Rc::new(Poly::Constant(0));
+        let result = poly.decompose(0);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], Rc::new(Poly::Constant(0)));
+    }
+
+    #[test]
+    fn test_decompose_single_term() {
+        let poly = Rc::new(Poly::new("5*a^3").unwrap());
+        let result = poly.decompose(0);
+        assert_eq!(result.len(), 4); // 0, 1, 2, 3 degrees
+        assert_eq!(result[0], Rc::new(Poly::Constant(0))); // constant term
+        assert_eq!(result[1], Rc::new(Poly::Constant(0))); // coefficient of a
+        assert_eq!(result[2], Rc::new(Poly::Constant(0))); // coefficient of a^2
+        assert_eq!(result[3], Rc::new(Poly::Constant(5))); // coefficient of a^3
     }
 }

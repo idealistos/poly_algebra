@@ -2,6 +2,7 @@ import type { Vector2d } from 'konva/lib/types';
 import type { ObjectProperties, PartialDBObject, Shape } from './types';
 import { LineABShape } from './shapes/LineABShape';
 import { MidpointShape } from './shapes/MidpointShape';
+import { ScaledVectorPointShape } from './shapes/ScaledVectorPointShape';
 
 export enum ObjectType {
     FixedPoint = 'FixedPoint',
@@ -11,6 +12,8 @@ export enum ObjectType {
     SlidingPoint = 'SlidingPoint',
     Projection = 'Projection',
     Reflection = 'Reflection',
+    ScaledVectorPoint = 'ScaledVectorPoint',
+    ComputedPoint = 'ComputedPoint',
     LineAB = 'LineAB',
     PpBisector = 'PpBisector',
     PpToLine = 'PpToLine',
@@ -30,6 +33,8 @@ export const MOBILE_POINT_OBJECT_TYPES: ObjectType[] = [
     ObjectType.SlidingPoint,
     ObjectType.Projection,
     ObjectType.Reflection,
+    ObjectType.ScaledVectorPoint,
+    ObjectType.ComputedPoint,
 ];
 
 export enum ShapeState {
@@ -49,6 +54,8 @@ export enum ActionType {
     SlidingPoint = 'SlidingPoint',
     Projection = 'Projection',
     Reflection = 'Reflection',
+    ScaledVectorPoint = 'ScaledVectorPoint',
+    ComputedPoint = 'ComputedPoint',
     LineAB = 'LineAB',
     PpBisector = 'PpBisector',
     PpToLine = 'PpToLine',
@@ -111,6 +118,8 @@ export function getPointDBProperties(objectType: ObjectType, lastPoint: Vector2d
         case ObjectType.PpBisector:
         case ObjectType.TwoPointDistanceInvariant:
             return currentActionStep === 0 ? { point1: value } : { point2: value };
+        case ObjectType.ScaledVectorPoint:
+            return currentActionStep === 1 ? { point1: value } : { point2: value };
         case ObjectType.Locus:
         case ObjectType.PointToLineDistanceInvariant:
         case ObjectType.PpToLine:
@@ -129,6 +138,8 @@ export function getOccupiedPoints(dbObject: PartialDBObject): Vector2d[] {
     switch (dbObject.object_type) {
         case ObjectType.Midpoint:
             return new MidpointShape(dbObject, []).points;
+        case ObjectType.ScaledVectorPoint:
+            return new ScaledVectorPointShape(dbObject, []).points;
         case ObjectType.LineAB:
             return new LineABShape(dbObject, []).points;
         default:

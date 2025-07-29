@@ -7,17 +7,16 @@ use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::process::Command;
-use std::rc::Rc;
 
 use crate::db::SceneEntity;
 use crate::db::SceneObjectEntity;
 use crate::db::SceneObjectModel;
-use crate::elimination::Elimination;
 use crate::fint::FInt;
+use crate::poly::Poly;
 use crate::poly::PolyConversion;
-use crate::poly::{Poly, PolyOperations, SingleOutResult};
 use crate::poly_draw::{Color, XYPolyDraw};
 use crate::scene_object::{ObjectType, SceneError, SceneObject};
+use crate::scene_utils::SceneUtils;
 
 #[derive(Debug)]
 pub struct PlotData {
@@ -228,10 +227,10 @@ impl Scene {
             .join("\n")
     }
 
-    pub fn to_equations(&self) -> Result<(Vec<String>, Vec<Plot>), SceneError> {
+    fn to_equations(python_expressions: String) -> Result<(Vec<String>, Vec<Plot>), SceneError> {
         let python_code = format!(
             "from equation_processor import *\n{}\n\n# Print all equations\nfor eq in equations:\n    print(eq)\nprint()\n# Print all plots\nfor plot in plots:\n    print(plot)",
-            self.to_python()
+            python_expressions
         );
         info!("Python code: {}", python_code);
 
@@ -289,175 +288,69 @@ impl Scene {
         Ok((equations, plots))
     }
 
-    pub fn parse_plot_vars(plot: &Plot) -> Result<(u8, u8), SceneError> {
-        let x_var =
-            Poly::parse_var(&plot.x).map_err(|e| SceneError::InvalidEquation(e.to_string()))?;
-        let y_var =
-            Poly::parse_var(&plot.y).map_err(|e| SceneError::InvalidEquation(e.to_string()))?;
-        Ok((x_var, y_var))
+    pub fn evaluate_initial_values(
+        &self,
+        expressions: &Vec<String>,
+    ) -> Result<Vec<f64>, SceneError> {
+        SceneUtils::evaluate_initial_values(&self.to_python(), expressions)
     }
 
-    fn get_curve_equation_and_factors(
-        equations: Vec<&str>,
-        plot: &Plot,
-        options: SceneOptions,
-    ) -> Result<CurveEquationAndFactors, SceneError> {
-        // Convert equations to polynomials
-        let mut polys: Vec<Rc<Poly>> = equations
-            .into_iter()
-            .map(|s| {
-                Rc::new(
-                    Poly::new(s)
-                        .map_err(|e| SceneError::InvalidEquation(e.to_string()))
-                        .unwrap(),
-                )
-            })
-            .collect::<Vec<_>>();
+    pub fn validate_expression(&self, expression: String) -> Vec<String> {
+        let mut messages = Vec::new();
+        let identifiers = SceneUtils::extract_identifiers(&expression);
 
-        // Convert x and y to variable indices
-        let (x_var, y_var) = Self::parse_plot_vars(plot)?;
-
-        // Collect all variables used in polynomials
-        let mut vars = [false; 256];
-        for poly in &polys {
-            poly.fill_in_variables(&mut vars);
-        }
-
-        // Process each variable that's not x or y
-        for (v, has_var) in vars.iter().enumerate() {
-            if *has_var && v != x_var as usize && v != y_var as usize {
-                // Get single_out results for all polynomials
-                let results: Vec<SingleOutResult> =
-                    polys.iter().map(|p| p.single_out(v as u8)).collect();
-
-                // Find a linear result to use for substitution
-                let mut linear_idx = None;
-                let mut linear_poly = None;
-                let mut linear_k = 0;
-
-                for (i, result) in results.iter().enumerate() {
-                    if let SingleOutResult::Linear(p, k) = result {
-                        linear_idx = Some(i);
-                        linear_poly = Some(p.clone());
-                        linear_k = *k;
-                        break;
-                    }
-                }
-
-                // If we found a linear result, use it to substitute in other polynomials
-                if let (Some(idx), Some(poly)) = (linear_idx, linear_poly) {
-                    let mut new_polys = Vec::new();
-                    for (i, result) in results.iter().enumerate() {
-                        if i == idx {
-                            continue; // Skip the polynomial we used for substitution
-                        }
-                        match result {
-                            SingleOutResult::Constant => {
-                                new_polys.push(polys[i].clone());
-                            }
-                            SingleOutResult::Linear(_, _) | SingleOutResult::Nonlinear => {
-                                new_polys.push(Rc::new(polys[i].substitute_linear(
-                                    v as u8,
-                                    poly.clone(),
-                                    linear_k,
-                                )));
-                            }
-                        }
-                    }
-                    polys = new_polys;
-                }
+        // Validate field names
+        let allowed_field_names = vec!["x", "y", "o", "n"];
+        for field_name in &identifiers.field_names {
+            if !allowed_field_names.contains(&field_name.as_str()) {
+                messages.push(format!(
+                    "Invalid field name: '{}'. Allowed fields are: {:?}",
+                    field_name, allowed_field_names
+                ));
             }
         }
-        polys = Poly::retain_relevant_polys(polys, x_var, y_var);
-        info!(
-            "Reduced system: \n{}",
-            polys
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<String>>()
-                .join("\n")
-        );
 
-        let mut elimination = Elimination::new(&polys, x_var, y_var, options.reduce_factors);
-        loop {
-            match elimination.get_var_to_eliminate() {
-                Some(var_search_result) => {
-                    info!(
-                        "--- Eliminating variable {} from\n{}",
-                        Poly::var_to_string(var_search_result.var),
-                        elimination
-                            .polys
-                            .iter()
-                            .map(|p| p.to_string())
-                            .collect::<Vec<String>>()
-                            .join("\n")
-                    );
-                    elimination.eliminate_var(var_search_result);
+        // Validate method names
+        let allowed_method_names = vec!["abs", "length", "length_sqr", "rotated90", "contains"];
+        for method_name in &identifiers.method_names {
+            if !allowed_method_names.contains(&method_name.as_str()) {
+                messages.push(format!(
+                    "Invalid method name: '{}'. Allowed methods are: {:?}",
+                    method_name, allowed_method_names
+                ));
+            }
+        }
+
+        // Validate function names
+        let allowed_function_names = vec!["sqrt", "d", "d_sqr", "cot", "Point", "Line", "Vector"];
+        for function_name in &identifiers.function_names {
+            if !allowed_function_names.contains(&function_name.as_str()) {
+                messages.push(format!(
+                    "Invalid function name: '{}'. Allowed functions are: {:?}",
+                    function_name, allowed_function_names
+                ));
+            }
+        }
+
+        // Validate object names
+        for object_name in &identifiers.object_names {
+            if let Some(scene_object) = self.objects.get(object_name) {
+                let object_type = scene_object.get_type();
+                let type_name = format!("{:?}", object_type);
+
+                // Check if the object type is allowed (not ending with "Invariant" and not Locus)
+                if type_name.ends_with("Invariant") || type_name == "Locus" {
+                    messages.push(format!(
+                        "Object '{}' has type '{}' which is not allowed in expressions",
+                        object_name, type_name
+                    ));
                 }
-                None => break,
+            } else {
+                messages.push(format!("Object '{}' not found in scene", object_name));
             }
         }
-        let polys = elimination.polys.clone();
 
-        // Check if we have exactly one polynomial left
-        if polys.len() != 1 {
-            return Err(SceneError::InvalidEquation(format!(
-                "Expected exactly one equation after elimination, got {}",
-                polys.len()
-            )));
-        }
-
-        // Verify the remaining polynomial only depends on x and y
-        let mut vars = [false; 256];
-        polys[0].fill_in_variables(&mut vars);
-        for (v, has_var) in vars.iter().enumerate() {
-            if *has_var && v != x_var as usize && v != y_var as usize {
-                return Err(SceneError::InvalidEquation(format!(
-                    "Remaining equation depends on variable {}",
-                    (v as u8 + b'a') as char
-                )));
-            }
-        }
-        let mut result = polys[0].clone();
-        Rc::make_mut(&mut result).reduce_coefficients_if_above(1);
-        let factors = result
-            .factor()
-            .map_err(|e| SceneError::InvalidEquation(e))?;
-
-        let mut product_factors = Vec::new();
-
-        if factors.len() == 1 {
-            product_factors = vec![(*result).clone()];
-        } else if factors.len() > 1 {
-            info!(
-                "Factors: {}",
-                factors
-                    .iter()
-                    .map(|f| f.to_string())
-                    .collect::<Vec<String>>()
-                    .join("\n")
-            );
-            let mut product = Poly::Constant(1);
-            for factor in factors {
-                if elimination
-                    .check_factor(&factor)
-                    .map_err(|e| SceneError::InvalidEquation(e))?
-                {
-                    product = product.multiply(&factor);
-                    // Add the factor to product_factors
-                    product_factors.push(factor);
-                } else {
-                    info!("Skipping factor {}", factor);
-                }
-            }
-            info!("Product: {}", product);
-            result = Rc::new(product);
-        }
-
-        Ok(CurveEquationAndFactors {
-            curve_equation: (*result).clone(),
-            factors: product_factors,
-        })
+        messages
     }
 
     pub fn solve_and_plot(
@@ -467,7 +360,7 @@ impl Scene {
         height: u32,
     ) -> Result<PlotData, SceneError> {
         // Convert plot to equations
-        let (equations, plots) = self.to_equations()?;
+        let (equations, plots) = SceneUtils::to_equations(self.to_python())?;
         info!(
             "Found {} equations and {} plots",
             equations.len(),
@@ -476,7 +369,7 @@ impl Scene {
         let plot = plots.iter().find(|p| p.name == locus_name).unwrap();
 
         // Get curve equation and factors
-        let curve_equation_and_factors = Scene::get_curve_equation_and_factors(
+        let curve_equation_and_factors = SceneUtils::get_curve_equation_and_factors(
             equations.iter().map(|s| s.as_str()).collect(),
             plot,
             self.options.clone(),
@@ -488,7 +381,7 @@ impl Scene {
             curve_equation_and_factors.curve_equation
         );
 
-        let (x_var, y_var) = Self::parse_plot_vars(plot)?;
+        let (x_var, y_var) = SceneUtils::parse_plot_vars(plot)?;
         // Convert to XYPoly
         let xy_poly = curve_equation_and_factors
             .curve_equation
@@ -541,10 +434,11 @@ impl Scene {
 mod tests {
     use super::*;
     use crate::db::{SceneActiveModel, SceneEntity, SceneObjectEntity};
-    use crate::service::{config, AppState, CreateSceneRequest};
+    use crate::service::{config, AppState, CreateSceneRequest, SceneInfo};
     use sea_orm::ActiveValue::Set;
     use sea_orm::{Database, Schema};
     use serde_json::json;
+    use test_log::test;
 
     async fn setup_test_db() -> DatabaseConnection {
         let db = Database::connect("sqlite::memory:").await.unwrap();
@@ -814,7 +708,7 @@ is_constant(d(P1, P2))"#;
     }
 
     #[tokio::test]
-    async fn test_equations_and_plots_generation() {
+    async fn test_python_expressions_generation() {
         let db = setup_test_db().await;
         let scene_id = SceneEntity::find().one(&db).await.unwrap().unwrap().id;
         let mut scene = Scene::new(scene_id, SceneOptions::default());
@@ -855,46 +749,15 @@ is_constant(d(P1, P2))"#;
             .await
             .unwrap();
 
-        let (equations, plots) = scene.to_equations().unwrap();
-
-        // The equations should contain specific formulas for the distance
-        let expected_equations = [
-            "0 - a - c",
-            "c^2 - d",
-            "0 - b - e",
-            "e^2 - f",
-            "d + f - g",
-            "g - 25",
-        ];
-
-        for eq in expected_equations.iter() {
-            assert!(
-                equations.contains(&eq.to_string()),
-                "Expected equation '{}' not found in equations: {:?}",
-                eq,
-                equations
-            );
-        }
-
-        // Check plots
-        assert_eq!(plots.len(), 1);
-        assert_eq!(plots[0].x, "a");
-        assert_eq!(plots[0].y, "b");
-    }
-
-    #[test]
-    fn test_get_curve_equation() {
-        let result = Scene::get_curve_equation_and_factors(
-            vec!["a^2 - 2*c", "b^2 - 3*d", "d - c"],
-            &Plot {
-                name: "plotA".to_string(),
-                x: "a".to_string(),
-                y: "b".to_string(),
-            },
-            SceneOptions::default(),
-        )
-        .unwrap();
-        assert_eq!(format!("{}", result.curve_equation), "2*b^2 - 3*a^2");
+        let python_expressions = scene.to_python();
+        let expected_python_expressions = vec![
+            "A = FixedPoint(0, 0)",
+            "X = FreePoint(3, 4)",
+            "plot(\"P1\", X)",
+            "is_constant(d_sqr(A, X))",
+        ]
+        .join("\n");
+        assert_eq!(python_expressions, expected_python_expressions);
     }
 
     #[tokio::test]
@@ -964,6 +827,40 @@ is_constant(d(P1, P2))"#;
     }
 
     #[tokio::test]
+    async fn test_get_scenes() {
+        use actix_web::{test, web, App};
+        // Setup test database
+        let db = setup_test_db().await;
+        let app_state = AppState::new(db.clone()).await;
+
+        let scene2 = SceneActiveModel {
+            name: Set("Scene 2".to_string()),
+            ..Default::default()
+        };
+        scene2.insert(&db).await.unwrap();
+
+        // Create test app
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(app_state))
+                .configure(config),
+        )
+        .await;
+
+        // Test GET /scenes
+        let req = test::TestRequest::get().uri("/scenes").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        let body: Vec<SceneInfo> = test::read_body_json(resp).await;
+        assert_eq!(body.len(), 2);
+        assert_eq!(body[0].id, 1);
+        assert_eq!(body[1].id, 2);
+        assert_eq!(body[0].name, "Test Scene");
+        assert_eq!(body[1].name, "Scene 2");
+    }
+
+    #[tokio::test]
     async fn test_delete_scene() {
         let db = setup_test_db().await;
 
@@ -1028,5 +925,336 @@ is_constant(d(P1, P2))"#;
             .unwrap()
             .is_none();
         assert!(object_exists);
+    }
+
+    #[test]
+    fn test_float_parsing_logic() {
+        // Test the float parsing logic that would be used in evaluate_initial_values
+        let test_cases = vec![
+            ("3.14", 3.14),
+            ("2.718", 2.718),
+            ("42.0", 42.0),
+            ("-1.5", -1.5),
+            ("0.0", 0.0),
+            ("1e-6", 1e-6),
+            ("1.5e+3", 1.5e+3),
+        ];
+
+        for (input, expected) in test_cases {
+            match input.parse::<f64>() {
+                Ok(value) => {
+                    assert!(
+                        (value - expected).abs() < f64::EPSILON,
+                        "Failed to parse '{}' correctly. Expected: {}, Got: {}",
+                        input,
+                        expected,
+                        value
+                    );
+                }
+                Err(_) => {
+                    panic!("Failed to parse '{}' as float", input);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_invalid_float_parsing() {
+        // Test that invalid inputs are properly rejected
+        let invalid_inputs = vec![
+            "not_a_number",
+            "3.14.15",
+            "abc123",
+            "3.14abc",
+            "abc3.14",
+            "",
+            "   ",
+        ];
+
+        for input in invalid_inputs {
+            let result = input.parse::<f64>();
+            assert!(
+                result.is_err(),
+                "Expected '{}' to fail parsing as float, but got: {:?}",
+                input,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_empty_and_whitespace_handling() {
+        // Test that empty lines and whitespace are handled correctly
+        let test_inputs = vec![
+            ("3.14", true),
+            ("  3.14  ", true), // Should trim whitespace
+            ("", false),        // Empty line should be skipped
+            ("   ", false),     // Whitespace-only line should be skipped
+        ];
+
+        for (input, should_parse) in test_inputs {
+            let trimmed = input.trim();
+            if should_parse {
+                assert!(
+                    !trimmed.is_empty(),
+                    "Input '{}' should not be empty after trimming",
+                    input
+                );
+                let result = trimmed.parse::<f64>();
+                assert!(result.is_ok(), "Failed to parse '{}' as float", input);
+            } else {
+                assert!(
+                    trimmed.is_empty(),
+                    "Input '{}' should be empty after trimming",
+                    input
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_expression_valid_expressions() {
+        let mut scene = Scene::new(1, SceneOptions::default());
+
+        // Add some test objects to the scene
+        let point_props = json!({"value": "1, 2"});
+        scene.objects.insert(
+            "A".to_string(),
+            SceneObject::FixedPoint(
+                crate::scene_object::fixed_point::FixedPoint::new(point_props).unwrap(),
+            ),
+        );
+
+        let point_props = json!({"value": "3, 4"});
+        scene.objects.insert(
+            "B".to_string(),
+            SceneObject::FreePoint(
+                crate::scene_object::free_point::FreePoint::new(point_props).unwrap(),
+            ),
+        );
+
+        // Test valid expressions
+        let valid_expressions = vec![
+            "A.x + B.y",
+            "d(A, B)",
+            "A.x.abs()",
+            "B.length()",
+            "Point(1, 2)",
+            "A.x + B.y + 5",
+        ];
+
+        for expression in valid_expressions {
+            let messages = scene.validate_expression(expression.to_string());
+            assert!(
+                messages.is_empty(),
+                "Expression '{}' should be valid but got messages: {:?}",
+                expression,
+                messages
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_expression_invalid_field_names() {
+        let scene = Scene::new(1, SceneOptions::default());
+
+        let invalid_expressions = vec![
+            "A.z",         // Invalid field 'z'
+            "B.w",         // Invalid field 'w'
+            "obj.invalid", // Invalid field 'invalid'
+        ];
+
+        for expression in invalid_expressions {
+            let messages = scene.validate_expression(expression.to_string());
+            assert!(
+                !messages.is_empty(),
+                "Expression '{}' should have validation errors",
+                expression
+            );
+            assert!(
+                messages
+                    .iter()
+                    .any(|msg| msg.contains("Invalid field name")),
+                "Expression '{}' should have field name validation error",
+                expression
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_expression_invalid_method_names() {
+        let mut scene = Scene::new(1, SceneOptions::default());
+
+        // Add a test object
+        let point_props = json!({"value": "1, 2"});
+        scene.objects.insert(
+            "A".to_string(),
+            SceneObject::FixedPoint(
+                crate::scene_object::fixed_point::FixedPoint::new(point_props).unwrap(),
+            ),
+        );
+
+        let invalid_expressions = vec![
+            "A.invalid()", // Invalid method 'invalid'
+            "B.unknown()", // Invalid method 'unknown'
+            "obj.bad()",   // Invalid method 'bad'
+        ];
+
+        for expression in invalid_expressions {
+            let messages = scene.validate_expression(expression.to_string());
+            assert!(
+                !messages.is_empty(),
+                "Expression '{}' should have validation errors",
+                expression
+            );
+            assert!(
+                messages
+                    .iter()
+                    .any(|msg| msg.contains("Invalid method name")),
+                "Expression '{}' should have method name validation error",
+                expression
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_expression_invalid_function_names() {
+        let scene = Scene::new(1, SceneOptions::default());
+
+        let invalid_expressions = vec![
+            "invalid(A, B)",  // Invalid function 'invalid'
+            "unknown(1, 2)",  // Invalid function 'unknown'
+            "bad_function()", // Invalid function 'bad_function'
+        ];
+
+        for expression in invalid_expressions {
+            let messages = scene.validate_expression(expression.to_string());
+            assert!(
+                !messages.is_empty(),
+                "Expression '{}' should have validation errors",
+                expression
+            );
+            assert!(
+                messages
+                    .iter()
+                    .any(|msg| msg.contains("Invalid function name")),
+                "Expression '{}' should have function name validation error",
+                expression
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_expression_nonexistent_objects() {
+        let scene = Scene::new(1, SceneOptions::default());
+
+        let invalid_expressions = vec![
+            "Nonexistent.x",     // Object doesn't exist
+            "Missing.y",         // Object doesn't exist
+            "d(Nonexistent, B)", // Object doesn't exist
+        ];
+
+        for expression in invalid_expressions {
+            let messages = scene.validate_expression(expression.to_string());
+            assert!(
+                !messages.is_empty(),
+                "Expression '{}' should have validation errors",
+                expression
+            );
+            assert!(
+                messages
+                    .iter()
+                    .any(|msg| msg.contains("not found in scene")),
+                "Expression '{}' should have object not found error",
+                expression
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_expression_disallowed_object_types() {
+        let mut scene = Scene::new(1, SceneOptions::default());
+
+        // Add an Invariant object (disallowed)
+        let invariant_props = json!({"formula": "x^2 + y^2 - 1"});
+        scene.objects.insert(
+            "Inv".to_string(),
+            SceneObject::Invariant(
+                crate::scene_object::invariant::Invariant::new(invariant_props).unwrap(),
+            ),
+        );
+
+        let invalid_expressions = vec![
+            "Inv.x",     // Invariant object not allowed
+            "d(Inv, A)", // Invariant object not allowed
+        ];
+
+        for expression in invalid_expressions {
+            let messages = scene.validate_expression(expression.to_string());
+            assert!(
+                !messages.is_empty(),
+                "Expression '{}' should have validation errors",
+                expression
+            );
+            assert!(
+                messages
+                    .iter()
+                    .any(|msg| msg.contains("not allowed in expressions")),
+                "Expression '{}' should have disallowed object type error",
+                expression
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_expression_multiple_errors() {
+        let scene = Scene::new(1, SceneOptions::default());
+
+        // Expression with multiple issues
+        let expression = "Nonexistent.invalid() + bad_function(Missing)";
+        let messages = scene.validate_expression(expression.to_string());
+
+        assert!(
+            messages.len() >= 3,
+            "Should have at least 3 validation errors"
+        );
+        println!("{:?}", messages);
+
+        // Check for specific error types
+        let has_object_not_found = messages
+            .iter()
+            .any(|msg| msg.contains("not found in scene"));
+        let has_invalid_method = messages
+            .iter()
+            .any(|msg| msg.contains("Invalid method name"));
+        let has_invalid_function = messages
+            .iter()
+            .any(|msg| msg.contains("Invalid function name"));
+
+        assert!(has_object_not_found, "Should have object not found error");
+        assert!(has_invalid_method, "Should have invalid method name error");
+        assert!(
+            has_invalid_function,
+            "Should have invalid function name error"
+        );
+    }
+
+    #[test]
+    fn test_validate_expression_empty_expression() {
+        let scene = Scene::new(1, SceneOptions::default());
+
+        let messages = scene.validate_expression("".to_string());
+        assert!(messages.is_empty(), "Empty expression should be valid");
+    }
+
+    #[test]
+    fn test_validate_expression_numbers_only() {
+        let scene = Scene::new(1, SceneOptions::default());
+
+        let messages = scene.validate_expression("123 + 456".to_string());
+        assert!(
+            messages.is_empty(),
+            "Expression with only numbers should be valid"
+        );
     }
 }

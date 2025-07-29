@@ -37,11 +37,10 @@ impl IntersectionPoint {
     }
 
     pub fn to_python(&self, name: &str) -> String {
-        let new_value = "Value(next_var(), initial=Value(next_var()))";
-        let line1 = format!("{} = Point({}, {})", name, new_value, new_value);
-        let line2 = format!("{}.contains({})", self.object_name_1, name);
-        let line3 = format!("{}.contains({})", self.object_name_2, name);
-        format!("{}\n{}\n{}", line1, line2, line3)
+        format!(
+            "{} = IntersectionPoint({}, {})",
+            name, self.object_name_1, self.object_name_2
+        )
     }
 
     pub fn get_dependencies(&self) -> Vec<String> {

@@ -7,6 +7,7 @@ mod poly;
 mod poly_draw;
 mod scene;
 mod scene_object;
+mod scene_utils;
 mod service;
 mod x_poly;
 

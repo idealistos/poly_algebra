@@ -92,6 +92,19 @@ export interface ReflectionProperties {
   line: string;
 }
 
+export interface ComputedPointProperties {
+  x_expr: string;
+  y_expr: string;
+  value: string;
+}
+
+export interface ScaledVectorPointProperties {
+  k: string;
+  point1: string;
+  point2: string;
+  k_value: number;
+}
+
 export type ObjectProperties =
   | FixedPointProperties
   | FreePointProperties
@@ -104,6 +117,8 @@ export type ObjectProperties =
   | PlToLineProperties
   | ProjectionProperties
   | ReflectionProperties
+  | ScaledVectorPointProperties
+  | ComputedPointProperties
   | InvariantProperties
   | LocusProperties
   | TwoPointDistanceInvariantProperties
@@ -146,6 +161,7 @@ export interface Shape {
   getDefinedPoint(): Vector2d | null;
   closeToPoint(point: Vector2d, delta: number): boolean;
   distanceToPoint(point: Vector2d): number;
+  updatePoints(step: number, point: Vector2d): void;
 }
 
 export interface Line {

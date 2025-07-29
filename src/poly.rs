@@ -417,6 +417,23 @@ impl Poly {
         self.reduce_coefficients_if_above(10000);
     }
 
+    pub fn get_coefficient_gcd(&self) -> i64 {
+        let mut gcd_value = 0;
+        let mut first_coeff = true;
+        self.observe_coefficients(|x| {
+            if x == 0 {
+                return;
+            }
+            if first_coeff {
+                gcd_value = x.unsigned_abs();
+                first_coeff = false;
+            } else {
+                gcd_value = gcd_value.gcd(x.unsigned_abs());
+            }
+        });
+        gcd_value as i64
+    }
+
     pub fn reduce_coefficients_if_above(&mut self, threshold: i64) {
         // Find the largest absolute value using observe_coefficients
         let mut max_abs_coeff = 0;
@@ -430,19 +447,7 @@ impl Poly {
         }
 
         // Find GCD of all coefficients using observe_coefficients
-        let mut gcd_value = 1u64;
-        let mut first_coeff = true;
-        self.observe_coefficients(|x| {
-            if x == 0 {
-                return;
-            }
-            if first_coeff {
-                gcd_value = x.unsigned_abs();
-                first_coeff = false;
-            } else {
-                gcd_value = gcd_value.gcd(x.unsigned_abs());
-            }
-        });
+        let gcd_value = self.get_coefficient_gcd();
 
         // If GCD is 1, no reduction needed
         if gcd_value == 1 {
@@ -635,6 +640,55 @@ impl Poly {
                 min_degree,
                 poly_index: min_poly_index,
             })
+        }
+    }
+
+    pub fn is_proportional(&self, other: &Poly, factor: &mut Option<(i64, i64)>) -> bool {
+        match (self, other) {
+            (Poly::Constant(n1), Poly::Constant(n2)) => {
+                if *n1 == 0 && *n2 == 0 {
+                    return true;
+                } else if ((*n1 == 0) != (*n2 == 0)) {
+                    return false;
+                }
+
+                match factor {
+                    None => {
+                        *factor = Some((*n1, *n2));
+                        true
+                    }
+                    Some((f1, f2)) => {
+                        // Check if n1/n2 matches f1/f2, i.e., f1 * n2 == f2 * n1
+                        *f1 * *n2 == *f2 * *n1
+                    }
+                }
+            }
+            (Poly::Nested(v1, polys1), Poly::Nested(v2, polys2)) => {
+                if v1 != v2 {
+                    return false;
+                }
+
+                let size = polys1.len().max(polys2.len());
+                let zero_poly = Rc::new(Poly::Constant(0));
+
+                // Recursively check each polynomial in the nested structure
+                for i in 0..size {
+                    let poly1 = polys1.get(i).unwrap_or(&zero_poly);
+                    let poly2 = polys2.get(i).unwrap_or(&zero_poly);
+                    if !poly1.is_proportional(poly2, factor) {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_univariate(&self) -> bool {
+        match self {
+            Poly::Constant(_) => true,
+            Poly::Nested(_, polys) => polys.iter().all(|poly| matches!(**poly, Poly::Constant(_))),
         }
     }
 }
@@ -1700,5 +1754,277 @@ mod tests {
                 poly_index: 0
             })
         ); // b has minimum degree 1
+    }
+
+    #[test]
+    fn test_is_proportional_constants() {
+        // Test case 1: Both constants are zero
+        let poly1 = Poly::Constant(0);
+        let poly2 = Poly::Constant(0);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, None); // factor should remain None for zero constants
+
+        // Test case 2: One constant is zero, other is not
+        let poly1 = Poly::Constant(0);
+        let poly2 = Poly::Constant(5);
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly2, &mut factor));
+
+        let poly1 = Poly::Constant(5);
+        let poly2 = Poly::Constant(0);
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly2, &mut factor));
+
+        // Test case 3: Proportional constants (2:1 ratio)
+        let poly1 = Poly::Constant(6);
+        let poly2 = Poly::Constant(3);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((6, 3)));
+
+        // Test case 4: Same constants
+        let poly1 = Poly::Constant(4);
+        let poly2 = Poly::Constant(4);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((4, 4)));
+
+        // Test case 5: Negative constants
+        let poly1 = Poly::Constant(-6);
+        let poly2 = Poly::Constant(3);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((-6, 3)));
+    }
+
+    #[test]
+    fn test_is_proportional_with_existing_factor() {
+        // Test case 1: First call sets the factor
+        let poly1 = Poly::Constant(8);
+        let poly2 = Poly::Constant(4);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((8, 4)));
+
+        // Test case 2: Second call with matching ratio
+        let poly3 = Poly::Constant(16);
+        let poly4 = Poly::Constant(8);
+        assert!(poly3.is_proportional(&poly4, &mut factor));
+        assert_eq!(factor, Some((8, 4))); // factor should remain unchanged
+
+        // Test case 3: Second call with non-matching ratio
+        let poly5 = Poly::Constant(10);
+        let poly6 = Poly::Constant(4);
+        assert!(!poly5.is_proportional(&poly6, &mut factor));
+        assert_eq!(factor, Some((8, 4))); // factor should remain unchanged
+    }
+
+    #[test]
+    fn test_is_proportional_nested() {
+        // Test case 1: Nested polynomials with proportional constants
+        let poly1 = Poly::Nested(
+            0,
+            vec![Rc::new(Poly::Constant(6)), Rc::new(Poly::Constant(12))],
+        );
+        let poly2 = Poly::Nested(
+            0,
+            vec![Rc::new(Poly::Constant(3)), Rc::new(Poly::Constant(6))],
+        );
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((6, 3)));
+
+        // Test case 2: Nested polynomials with different variables
+        let poly1 = Poly::Nested(0, vec![Rc::new(Poly::Constant(4))]);
+        let poly2 = Poly::Nested(1, vec![Rc::new(Poly::Constant(2))]);
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly2, &mut factor));
+
+        // Test case 3: Nested polynomials with different lengths
+        let poly1 = Poly::Nested(0, vec![Rc::new(Poly::Constant(4))]);
+        let poly2 = Poly::Nested(
+            0,
+            vec![Rc::new(Poly::Constant(2)), Rc::new(Poly::Constant(2))],
+        );
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly2, &mut factor));
+
+        // Test case 4: Complex nested structure
+        let poly1 = Poly::Nested(
+            0,
+            vec![
+                Rc::new(Poly::Nested(1, vec![Rc::new(Poly::Constant(8))])),
+                Rc::new(Poly::Constant(16)),
+            ],
+        );
+        let poly2 = Poly::Nested(
+            0,
+            vec![
+                Rc::new(Poly::Nested(1, vec![Rc::new(Poly::Constant(4))])),
+                Rc::new(Poly::Constant(8)),
+            ],
+        );
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((8, 4)));
+    }
+
+    #[test]
+    fn test_is_proportional_mixed_types() {
+        // Test case 1: Constant vs Nested
+        let poly1 = Poly::Constant(4);
+        let poly2 = Poly::Nested(0, vec![Rc::new(Poly::Constant(2))]);
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly2, &mut factor));
+
+        // Test case 2: Nested vs Constant
+        let poly1 = Poly::Nested(0, vec![Rc::new(Poly::Constant(4))]);
+        let poly2 = Poly::Constant(2);
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly2, &mut factor));
+    }
+
+    #[test]
+    fn test_is_proportional_zero_handling() {
+        // Test case 1: Both polynomials are zero
+        let poly1 = Poly::Constant(0);
+        let poly2 = Poly::Constant(0);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, None);
+
+        // Test case 2: Zero with existing factor
+        let poly1 = Poly::Constant(0);
+        let poly2 = Poly::Constant(0);
+        let mut factor = Some((4, 2));
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((4, 2))); // factor should remain unchanged
+
+        // Test case 3: Zero in nested structure
+        let poly1 = Poly::Nested(
+            0,
+            vec![Rc::new(Poly::Constant(0)), Rc::new(Poly::Constant(8))],
+        );
+        let poly2 = Poly::Nested(
+            0,
+            vec![Rc::new(Poly::Constant(0)), Rc::new(Poly::Constant(4))],
+        );
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((8, 4)));
+    }
+
+    #[test]
+    fn test_is_proportional_complex_ratios() {
+        // Test case 1: Large numbers
+        let poly1 = Poly::Constant(1000);
+        let poly2 = Poly::Constant(500);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((1000, 500)));
+
+        // Test case 2: Negative ratios
+        let poly1 = Poly::Constant(-15);
+        let poly2 = Poly::Constant(5);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((-15, 5)));
+
+        // Test case 3: Fractions (represented as integers)
+        // 3/2 ratio
+        let poly1 = Poly::Constant(6);
+        let poly2 = Poly::Constant(4);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((6, 4)));
+
+        // Test case 4: Multiple calls with different ratios
+        let poly1 = Poly::Constant(6);
+        let poly2 = Poly::Constant(4);
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((6, 4)));
+
+        // Now test with a different ratio that should fail
+        let poly3 = Poly::Constant(8);
+        let poly4 = Poly::Constant(3);
+        assert!(!poly3.is_proportional(&poly4, &mut factor));
+        assert_eq!(factor, Some((6, 4))); // factor should remain unchanged
+    }
+
+    #[test]
+    fn test_is_proportional_multivariate() {
+        // Test case 1: Zero in nested structure
+        let poly1 = Poly::new("a^2*b + 3*b^2*c + 5").unwrap();
+        let poly2 = Poly::new("-a^2*b - 3*b^2*c - 5").unwrap();
+        let poly3 = Poly::new("-a^2*b - 3*b^2*c + 5").unwrap();
+        let poly4 = Poly::new("-b^2*a - 3*b^2*c - 5").unwrap();
+        let poly5 = Poly::new("7*a^2*b + 21*b^2*c + 35").unwrap();
+
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly2, &mut factor));
+        assert_eq!(factor, Some((5, -5)));
+
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly3, &mut factor));
+
+        let mut factor = None;
+        assert!(!poly1.is_proportional(&poly4, &mut factor));
+
+        let mut factor = None;
+        assert!(poly1.is_proportional(&poly5, &mut factor));
+        assert_eq!(factor, Some((5, 35)));
+    }
+
+    #[test]
+    fn test_is_univariate() {
+        // Test constants
+        let poly = Poly::Constant(5);
+        assert!(poly.is_univariate());
+
+        let poly = Poly::Constant(0);
+        assert!(poly.is_univariate());
+
+        let poly = Poly::Constant(-10);
+        assert!(poly.is_univariate());
+
+        // Test univariate polynomials (single variable with constant coefficients)
+        let poly = Poly::new("1 + 2*a + 3*a^2").unwrap();
+        assert!(poly.is_univariate());
+
+        let poly = Poly::new("5*a").unwrap();
+        assert!(poly.is_univariate());
+
+        let poly = Poly::new("a^3").unwrap();
+        assert!(poly.is_univariate());
+
+        // Test multivariate polynomials (should return false)
+        let poly = Poly::new("1 + 2*a + 3*b").unwrap();
+        assert!(!poly.is_univariate());
+
+        let poly = Poly::new("a*b").unwrap();
+        assert!(!poly.is_univariate());
+
+        let poly = Poly::new("a^2 + b^2 + c").unwrap();
+        assert!(!poly.is_univariate());
+
+        // Test nested polynomials with constant coefficients
+        let poly = Poly::new("1 + 2*b + 3*b^2").unwrap();
+        assert!(poly.is_univariate());
+
+        // Test complex nested structures
+        let poly = Poly::new("a^2*b + 3*b^2*c + 5").unwrap();
+        assert!(!poly.is_univariate());
+
+        let poly = Poly::new("a^3 + 2*a^2 + a + 1").unwrap();
+        assert!(poly.is_univariate());
+
+        // Test edge cases
+        let poly = Poly::new("0").unwrap();
+        assert!(poly.is_univariate());
+
+        let poly = Poly::new("1").unwrap();
+        assert!(poly.is_univariate());
     }
 }

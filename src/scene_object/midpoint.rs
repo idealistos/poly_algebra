@@ -44,13 +44,7 @@ impl Midpoint {
             self.point2.clone()
         };
 
-        let new_value = "Value(next_var(), initial=Value(next_var()))";
-        let line1 = format!("{} = Point({}, {})", name, new_value, new_value);
-        let line2 = format!(
-            "is_zero_vector(({} - {}) + ({} - {}))",
-            point1, name, point2, name
-        );
-        format!("{}\n{}", line1, line2)
+        format!("{} = Midpoint({}, {})", name, point1, point2)
     }
 
     pub fn get_dependencies(&self) -> Vec<String> {

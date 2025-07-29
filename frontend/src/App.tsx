@@ -1,26 +1,28 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import SceneCanvas from './SceneCanvas';
 import { ActionRibbon } from './ActionRibbon';
-import { ActionType, ObjectType, ShapeState } from './enums';
-import type { Action, Shape, PlotData } from './types';
+import { ObjectType, ShapeState } from './enums';
+import type { Action, Shape, PlotData, PartialDBObject, ComputedPointProperties, ScaledVectorPointProperties } from './types';
 import './App.css';
-import { createShapeForDBObject, PLOT_COLORS } from './utils';
+import { createShapeForDBObject, getActionTitle, PLOT_COLORS, getDBObjectForExpressions } from './utils';
 import { SceneManagementModal } from './SceneManagementModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import Legend from './Legend';
 import type { LocusShape } from './shapes/LocusShape';
 
-function InvariantModal({
+function ExpressionModal({
   mousePos,
-  formula,
-  setFormula,
+  title,
+  expression,
+  setExpression,
   onSubmit,
   onCancel,
   visible
 }: {
   mousePos: { x: number, y: number },
-  formula: string,
-  setFormula: (s: string) => void,
+  title: string,
+  expression: string,
+  setExpression: (s: string) => void,
   onSubmit: () => void,
   onCancel: () => void,
   visible: boolean
@@ -30,24 +32,24 @@ function InvariantModal({
     <div
       className="modal-overlay"
       style={{
-        left: mousePos.x + 24,
-        top: mousePos.y - 16,
+        left: mousePos.x - 150,
+        top: mousePos.y + 150,
       }}
     >
       <div className="modal-content">
-        <div className="modal-title">Add Invariant</div>
+        <div className="modal-title">{title}</div>
         <input
           type="text"
           className="modal-input"
-          value={formula}
-          onChange={e => setFormula(e.target.value)}
+          value={expression}
+          onChange={e => setExpression(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onSubmit(); }}
-          placeholder="Enter the formula of the invariant"
+          placeholder="Enter an expression"
           autoFocus
         />
         <div className="modal-buttons">
           <button className="modal-button modal-button-cancel" onClick={onCancel}>Cancel</button>
-          <button className="modal-button modal-button-ok" onClick={onSubmit} disabled={!formula.trim()}>OK</button>
+          <button className="modal-button modal-button-ok" onClick={onSubmit} disabled={!expression.trim()}>OK</button>
         </div>
       </div>
     </div>
@@ -94,14 +96,14 @@ async function deleteShape(
           setConfirmationModal(prev => ({ ...prev, isOpen: false }));
 
           // Proceed with deletion
-          await performDeletion(shape, sceneId, setShapes, setStatusMessage, setDisplayedPlotNames);
+          await performDeletion(shape, sceneId, setShapes, setDisplayedPlotNames);
         }
       });
       return; // Exit early, deletion will be handled by onConfirm
     }
 
     // No dependents, proceed with deletion directly
-    await performDeletion(shape, sceneId, setShapes, setStatusMessage, setDisplayedPlotNames);
+    await performDeletion(shape, sceneId, setShapes, setDisplayedPlotNames);
   } catch (err) {
     console.error('Failed to delete shape:', err);
     setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
@@ -112,7 +114,6 @@ async function performDeletion(
   shape: Shape,
   sceneId: number,
   setShapes: React.Dispatch<React.SetStateAction<Shape[]>>,
-  setStatusMessage: (message: string | null) => void,
   setDisplayedPlotNames?: React.Dispatch<React.SetStateAction<Set<string>>>
 ) {
   const response = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.dbObject.name}`, {
@@ -179,8 +180,9 @@ function App() {
   const [currentAction, setCurrentAction] = useState<Action | null>(null);
   const [currentActionStep, setCurrentActionStep] = useState<number>(0);
   const [stagedShapeName, setStagedShapeName] = useState<string | null>(null);
+  const [validatedExpressions, setValidatedExpressions] = useState<Array<string>>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [invariantFormula, setInvariantFormula] = useState('');
+  const [editedExpression, setEditedExpression] = useState('');
   const [mousePos, setMousePos] = useState<{ x: number, y: number }>({ x: 200, y: 200 });
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [displayedPlotNames, setDisplayedPlotNames] = useState<Set<string>>(new Set());
@@ -205,8 +207,9 @@ function App() {
     setStagedShapeName(null);
     setCurrentActionStep(0);
     setStatusMessage(null);
-    setInvariantFormula('');
-  }, [setCurrentAction, setStagedShapeName, setCurrentActionStep, setStatusMessage, setInvariantFormula]);
+    setEditedExpression('');
+    setValidatedExpressions([]);
+  }, [setCurrentAction, setStagedShapeName, setCurrentActionStep, setStatusMessage, setEditedExpression]);
 
   useEffect(() => {
     fetch('http://localhost:8080/scenes')
@@ -262,19 +265,19 @@ function App() {
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (currentAction?.name !== ActionType.Invariant) {
+      if ((currentAction?.arguments[currentActionStep].types.length ?? 0) > 0) {
         setMousePos({ x: e.clientX, y: e.clientY });
       }
     };
     window.addEventListener('mousemove', handler);
     return () => window.removeEventListener('mousemove', handler);
-  }, [currentAction]);
+  }, [currentAction, currentActionStep]);
 
   useEffect(() => {
-    if (currentAction?.name === ActionType.Invariant) {
-      setInvariantFormula('');
+    if (currentAction?.arguments[currentActionStep]?.types?.length === 0) {
+      setEditedExpression('');
     }
-  }, [currentAction]);
+  }, [currentAction, currentActionStep]);
 
   // Reset state when scene changes
   useEffect(() => {
@@ -283,6 +286,7 @@ function App() {
     setDisplayedPlotNames(new Set());
     setPlotDataByLocusName({});
     setShapes([]);
+    setValidatedExpressions([]);
   }, [selectedSceneId]);
 
   const handleActionClick = useCallback((action: Action) => {
@@ -414,29 +418,143 @@ function App() {
     }
   }, [displayedPlotNames, plotDataByLocusName, fetchPlotPoints]);
 
-  const handleInvariantSubmit = async () => {
-    if (!selectedSceneId || !stagedShapeName || !invariantFormula.trim()) return;
-    const dbObject = {
-      name: stagedShapeName,
-      object_type: ObjectType.Invariant,
-      properties: { formula: invariantFormula.trim() },
-    };
+  const getComputableFieldsCallbacks = (objectType: ObjectType) => {
+    switch (objectType) {
+      case ObjectType.ComputedPoint:
+        return {
+          dbObjectToInput: (dbObject: PartialDBObject) => {
+            const props = dbObject.properties as ComputedPointProperties;
+            return [props.x_expr, props.y_expr];
+          },
+          outputToProps: (output: number[]) => {
+            return { value: `${output[0]},${output[1]}` };
+          }
+        };
+      case ObjectType.ScaledVectorPoint:
+        return {
+          dbObjectToInput: (dbObject: PartialDBObject) => {
+            const props = dbObject.properties as ScaledVectorPointProperties;
+            return [props.k];
+          },
+          outputToProps: (output: number[]) => {
+            return { k_value: output[0] };
+          }
+        };
+      default:
+        return null;
+    }
+  };
+
+  const insertComputableFields = async (sceneId: number, dbObject: PartialDBObject): Promise<PartialDBObject> => {
+    const callbacks = getComputableFieldsCallbacks(dbObject.object_type);
+    if (callbacks == null) {
+      return dbObject;
+    }
+    const { dbObjectToInput, outputToProps } = callbacks;
+
     try {
-      const res = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/objects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dbObject),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+      const input = dbObjectToInput(dbObject);
+      const jsonString = JSON.stringify(input);
+      const jsonParam = btoa(jsonString).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+      const response = await fetch(`http://localhost:8080/scenes/${sceneId}/initial?json=${jsonParam}`);
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
       }
-      unsetAction();
-      console.log('1');
-      setShapes(prevShapes => [...prevShapes, createShapeForDBObject(dbObject, shapes, -1)]);
+
+      const result = await response.json();
+      const props = outputToProps(result.values);
+
+      return {
+        ...dbObject,
+        properties: {
+          ...dbObject.properties,
+          ...props
+        }
+      };
     } catch (err) {
-      console.error('Failed to POST invariant:', err);
+      console.error('Failed to compute initial values for ComputedPoint:', err);
+      throw err;
+    }
+  };
+
+  const handleExpressionSubmit = async () => {
+    if (!selectedSceneId || !stagedShapeName || !editedExpression.trim() || !currentAction) return;
+
+    const expression = editedExpression.trim();
+
+    // Validate the expression
+    try {
+      const jsonString = JSON.stringify([expression]);
+      const jsonParam = btoa(jsonString).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      const validationResponse = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/validate?json=${jsonParam}`);
+
+      if (!validationResponse.ok) {
+        const text = await validationResponse.text();
+        throw new Error(text || validationResponse.statusText);
+      }
+
+      const validationResult = await validationResponse.json();
+
+      // Check if there are validation errors
+      if (validationResult.errors && validationResult.errors.length > 0) {
+        setStatusMessage(`Validation errors: ${validationResult.errors.join(', ')}`);
+        // Highlight the input field by adding a CSS class or similar
+        const inputElement = document.querySelector('.modal-input') as HTMLInputElement;
+        if (inputElement) {
+          inputElement.style.borderColor = 'red';
+          inputElement.style.backgroundColor = '#fff0f0';
+        }
+        return;
+      }
+
+      // Clear any previous error styling
+      const inputElement = document.querySelector('.modal-input') as HTMLInputElement;
+      if (inputElement) {
+        inputElement.style.borderColor = '';
+        inputElement.style.backgroundColor = '';
+      }
+
+      const newExpressions = [...validatedExpressions, expression];
+      // Add expression to validatedExpressions
+      setValidatedExpressions(prev => [...prev, expression]);
+
+      // Check if this is the last step
+      if (currentActionStep === currentAction.arguments.length - 1) {
+        // Last step: generate DB object and create it
+        const dbObject = getDBObjectForExpressions(stagedShapeName, newExpressions, currentAction);
+        const dbObjectWithComputedFields = await insertComputableFields(selectedSceneId, dbObject);
+
+        try {
+          const res = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/objects`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dbObjectWithComputedFields),
+          });
+
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || res.statusText);
+          }
+
+          unsetAction();
+          setShapes(prevShapes => [...prevShapes, createShapeForDBObject(dbObjectWithComputedFields, shapes, -1)]);
+        } catch (err) {
+          console.error('Failed to POST object:', err);
+          setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+        }
+      } else {
+        // Not the last step: increment currentActionStep
+        setCurrentActionStep(prev => prev + 1);
+        setEditedExpression('');
+      }
+
+    } catch (err) {
+      console.error('Failed to validate expression:', err);
       setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+      unsetAction();
     }
   };
 
@@ -449,6 +567,7 @@ function App() {
         setCurrentActionStep={setCurrentActionStep}
         stagedShapeName={stagedShapeName}
         setStagedShapeName={setStagedShapeName}
+        validatedExpressions={validatedExpressions}
         unsetAction={unsetAction}
         shapes={shapes}
         setShapes={setShapes}
@@ -457,6 +576,7 @@ function App() {
         plotDataByLocusName={plotDataByLocusName}
         setPlotDataByLocusName={setPlotDataByLocusName}
         fetchPlotPoints={fetchPlotPoints}
+        insertComputableFields={insertComputableFields}
       />
       <ActionRibbon onActionClick={handleActionClick} setStatusMessage={setStatusMessage} />
       <div className="top-bar">
@@ -577,13 +697,14 @@ function App() {
         </div>
       </div>
       <div className="status-bar">{statusMessage}</div>
-      <InvariantModal
+      <ExpressionModal
         mousePos={mousePos}
-        formula={invariantFormula}
-        setFormula={setInvariantFormula}
-        onSubmit={handleInvariantSubmit}
+        title={`Enter an expression (argument #${currentActionStep + 1} of ${currentAction ? getActionTitle(currentAction) : '?'})`}
+        expression={editedExpression}
+        setExpression={setEditedExpression}
+        onSubmit={handleExpressionSubmit}
         onCancel={unsetAction}
-        visible={currentAction?.name === ActionType.Invariant}
+        visible={currentAction?.arguments[currentActionStep]?.types?.length === 0}
       />
       <SceneManagementModal
         isOpen={isSceneManagementModalOpen}

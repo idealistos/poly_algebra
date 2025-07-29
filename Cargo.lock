@@ -2076,6 +2076,7 @@ dependencies = [
  "actix-web",
  "approx",
  "async-std",
+ "base64 0.21.7",
  "chrono",
  "clap",
  "ctor",

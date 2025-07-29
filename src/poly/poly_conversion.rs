@@ -30,28 +30,41 @@ impl PolyConversion for Poly {
     }
 
     fn as_xy_poly(&self, xv: u8, yv: u8) -> Result<XYPoly, String> {
-        if xv >= yv {
-            return Err("x variable must be less than y variable".to_string());
+        if xv == yv {
+            return Err("x and y variables must be different".to_string());
         }
 
-        match self {
-            Poly::Constant(_) => Ok(XYPoly::new(vec![self.as_x_poly(yv)?])),
-            Poly::Nested(v1, polys) => {
-                if *v1 == yv {
-                    Ok(XYPoly::new(vec![self.as_x_poly(yv)?]))
-                } else if *v1 == xv {
-                    let mut coefficients = Vec::with_capacity(polys.len());
-                    for poly in polys {
-                        coefficients.push(poly.as_x_poly(yv)?);
+        let result = if xv < yv {
+            // Original case: xv < yv
+            match self {
+                Poly::Constant(_) => Ok(XYPoly::new(vec![self.as_x_poly(yv)?])),
+                Poly::Nested(v1, polys) => {
+                    if *v1 == yv {
+                        Ok(XYPoly::new(vec![self.as_x_poly(yv)?]))
+                    } else if *v1 == xv {
+                        let mut coefficients = Vec::with_capacity(polys.len());
+                        for poly in polys {
+                            coefficients.push(poly.as_x_poly(yv)?);
+                        }
+                        Ok(XYPoly::new(coefficients))
+                    } else {
+                        Err(format!(
+                            "Polynomial must be in terms of variables {} and {}",
+                            xv, yv
+                        ))
                     }
-                    Ok(XYPoly::new(coefficients))
-                } else {
-                    Err(format!(
-                        "Polynomial must be in terms of variables {} and {}",
-                        xv, yv
-                    ))
                 }
             }
+        } else {
+            // New case: xv > yv, so we call as_xy_poly(yv, xv) and flip the result
+            self.as_xy_poly(yv, xv)
+        }?;
+
+        // If xv > yv, flip the result to get the correct variable ordering
+        if xv > yv {
+            Ok(result.flip())
+        } else {
+            Ok(result)
         }
     }
 
@@ -456,11 +469,22 @@ mod tests {
         let poly = Poly::new("a*b + 2*a + 3*b + 4").unwrap();
         let result = poly.as_xy_poly(0, 1).unwrap();
         assert_eq!(result.0.len(), 2);
-        assert_eq!(result.0[0].0.len(), 2);
-        assert_eq!(result.0[1].0.len(), 2);
+        assert_eq!(result.0[0].0.len(), 2); // 4 + 3b
         assert_eq!(result.0[0].0[0].midpoint(), 4.0);
         assert_eq!(result.0[0].0[1].midpoint(), 3.0);
+        assert_eq!(result.0[1].0.len(), 2); // 2 + b
         assert_eq!(result.0[1].0[0].midpoint(), 2.0);
+        assert_eq!(result.0[1].0[1].midpoint(), 1.0);
+
+        // Test reversed variables
+        let poly = Poly::new("a*b + 2*a + 3*b + 4").unwrap();
+        let result = poly.as_xy_poly(1, 0).unwrap();
+        assert_eq!(result.0.len(), 2);
+        assert_eq!(result.0[0].0.len(), 2); // 4 + 2a
+        assert_eq!(result.0[0].0[0].midpoint(), 4.0);
+        assert_eq!(result.0[0].0[1].midpoint(), 2.0);
+        assert_eq!(result.0[1].0.len(), 2); // 3 + a
+        assert_eq!(result.0[1].0[0].midpoint(), 3.0);
         assert_eq!(result.0[1].0[1].midpoint(), 1.0);
 
         // Test error cases

@@ -67,6 +67,36 @@ export function getActionIcon(action: ActionType) {
                     <circle cx="12" cy="20" r="2" fill="black" />
                 </svg>
             );
+        case ActionType.ScaledVectorPoint:
+            return (
+                <svg width="24" height="24" viewBox="0 0 24 24" style={{ display: 'block' }}>
+                    {/* Point A (lower left) - non-filled circle */}
+                    <circle cx="4" cy="18" r="2" stroke="currentColor" strokeWidth="1.5" fill="gray" />
+                    {/* Point B (upper right) - non-filled circle */}
+                    <circle cx="20" cy="6" r="2" stroke="currentColor" strokeWidth="1.5" fill="gray" />
+                    {/* Point C (inside AB segment, closer to B) - filled circle */}
+                    <circle cx="15" cy="9.75" r="2" fill="black" />
+                    {/* Dotted line connecting A and B */}
+                    <line x1="6" y1="17" x2="12" y2="12" stroke="currentColor" strokeWidth="1" strokeDasharray="2,2" />
+                    {/* Dotted arrow at B (end of AB vector) */}
+                    <line x1="18" y1="7" x2="20" y2="6" stroke="currentColor" strokeWidth="1" strokeDasharray="2,2" />
+                    {/* Solid arrow at C (end of AC vector) */}
+                    <line x1="14" y1="9" x2="16" y2="8" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+            );
+        case ActionType.ComputedPoint:
+            return (
+                <svg width="24" height="24" viewBox="0 0 24 24" style={{ display: 'block' }}>
+                    {/* Central point */}
+                    <circle cx="12" cy="12" r="3" fill="currentColor" />
+                    {/* First spiral arm */}
+                    <path d="M9 12 A8 8 0 0 1 21 12" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                    {/* Second spiral arm (rotated 120°) */}
+                    <path d="M13.5 9.402 A8 8 0 0 1 7.5 19.794" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                    {/* Third spiral arm (rotated 240°) */}
+                    <path d="M13.5 14.598 A8 8 0 0 1 7.5 4.206" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
+            );
         case ActionType.LineAB:
             return (
                 <svg width="24" height="24" viewBox="0 0 24 24" style={{ display: 'block' }}>
