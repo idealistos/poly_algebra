@@ -9,8 +9,6 @@ import { checkLineAlreadyChosen, createShapeForDBObject, getDBObjectForExpressio
 import { IntersectionPointShape } from './shapes/IntersectionPointShape';
 import { LineBasedShape } from './shapes/LineBasedShape';
 
-
-
 export interface View {
   center: {
     x: number;

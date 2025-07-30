@@ -9,7 +9,15 @@ interface GroupedActions {
   [key: string]: Action[];
 }
 
-export function ActionRibbon({ onActionClick, setStatusMessage }: { onActionClick: (action: Action) => void, setStatusMessage: (msg: string | null) => void }) {
+export function ActionRibbon({
+  onActionClick,
+  setStatusMessage,
+  setClickedActionButtonCorner
+}: {
+  onActionClick: (action: Action) => void,
+  setStatusMessage: (msg: string | null) => void,
+  setClickedActionButtonCorner: (corner: { x: number, y: number } | null) => void
+}) {
   const [groupedActions, setGroupedActions] = useState<GroupedActions>({});
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState<string | null>(null);
@@ -47,10 +55,20 @@ export function ActionRibbon({ onActionClick, setStatusMessage }: { onActionClic
       .catch(() => setGroupedActions({}));
   }, []);
 
-  const handleButtonClick = (action: Action) => {
+  const handleButtonClick = (action: Action, event?: React.MouseEvent<HTMLButtonElement>) => {
     setStatusMessage(action.arguments[0]?.hint ?? null);
     onActionClick(action);
     setExpandedGroup(null); // Close expansion after selection
+
+    // Capture the button's top-left corner position
+    if (event) {
+      const buttonElement = event.currentTarget;
+      const rect = buttonElement.getBoundingClientRect();
+      setClickedActionButtonCorner({
+        x: rect.left,
+        y: rect.top
+      });
+    }
   };
 
   const handleGroupHover = (groupKey: string, hasMultipleActions: boolean) => {
@@ -121,7 +139,7 @@ export function ActionRibbon({ onActionClick, setStatusMessage }: { onActionClic
               <span>
                 <IconButton
                   size="large"
-                  onClick={() => handleButtonClick(defaultAction)}
+                  onClick={(event) => handleButtonClick(defaultAction, event)}
                 >
                   {getActionIcon(defaultAction.name)}
                 </IconButton>
@@ -144,7 +162,7 @@ export function ActionRibbon({ onActionClick, setStatusMessage }: { onActionClic
                     <span>
                       <IconButton
                         size="large"
-                        onClick={() => handleButtonClick(action)}
+                        onClick={(event) => handleButtonClick(action, event)}
                       >
                         {getActionIcon(action.name)}
                       </IconButton>

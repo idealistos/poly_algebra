@@ -187,16 +187,18 @@ async fn get_actions() -> impl Responder {
             object_types: vec![
                 ObjectType::Projection.to_string(),
             ],
-            arguments: vec![Argument {
-                types: vec!["AnyDefinedOrGridPoint".to_string()],
-                hint: "Select the point to be projected (an already defined point or a point on the grid) (1 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            },
-            Argument {
-                types: vec!["Line".to_string()],
-                hint: "Select the line to be projected onto (2 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            }],
+            arguments: vec![
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Select the point to be projected (an already defined point or a point on the grid) (1 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec!["Line".to_string()],
+                    hint: "Select the line to be projected onto (2 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+            ],
             description:
                 "Projection: the point on a line that is the perpendicular projection of a given point onto the line"
                     .to_string(),
@@ -208,16 +210,18 @@ async fn get_actions() -> impl Responder {
             object_types: vec![
                 ObjectType::Reflection.to_string(),
             ],
-            arguments: vec![Argument {
-                types: vec!["AnyDefinedOrGridPoint".to_string()],
-                hint: "Select the point to be reflected (an already defined point or a point on the grid) (1 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            },
-            Argument {
-                types: vec!["Line".to_string()],
-                hint: "Select the line to be reflected across (2 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            }],
+            arguments: vec![
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Select the point to be reflected (an already defined point or a point on the grid) (1 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec!["Line".to_string()],
+                    hint: "Select the line to be reflected across (2 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+            ],
             description:
                 "Reflection: the point on the other side of a line that is the reflection of a given point across the line"
                     .to_string(),

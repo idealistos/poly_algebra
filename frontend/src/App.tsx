@@ -11,7 +11,7 @@ import Legend from './Legend';
 import type { LocusShape } from './shapes/LocusShape';
 
 function ExpressionModal({
-  mousePos,
+  actionButtonCorner,
   title,
   expression,
   setExpression,
@@ -19,7 +19,7 @@ function ExpressionModal({
   onCancel,
   visible
 }: {
-  mousePos: { x: number, y: number },
+  actionButtonCorner: { x: number, y: number } | null,
   title: string,
   expression: string,
   setExpression: (s: string) => void,
@@ -32,8 +32,8 @@ function ExpressionModal({
     <div
       className="modal-overlay"
       style={{
-        left: mousePos.x - 150,
-        top: mousePos.y + 150,
+        left: actionButtonCorner?.x ?? 0,
+        top: (actionButtonCorner?.y ?? 500) - 50,
       }}
     >
       <div className="modal-content">
@@ -183,7 +183,6 @@ function App() {
   const [validatedExpressions, setValidatedExpressions] = useState<Array<string>>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [editedExpression, setEditedExpression] = useState('');
-  const [mousePos, setMousePos] = useState<{ x: number, y: number }>({ x: 200, y: 200 });
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [displayedPlotNames, setDisplayedPlotNames] = useState<Set<string>>(new Set());
   const [plotDataByLocusName, setPlotDataByLocusName] = useState<Record<string, PlotData>>({});
@@ -201,6 +200,7 @@ function App() {
     dependents: [],
     onConfirm: () => { },
   });
+  const [clickedActionButtonCorner, setClickedActionButtonCorner] = useState<{ x: number, y: number } | null>(null);
 
   const unsetAction = useCallback(() => {
     setCurrentAction(null);
@@ -262,16 +262,6 @@ function App() {
       setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
     }
   };
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if ((currentAction?.arguments[currentActionStep].types.length ?? 0) > 0) {
-        setMousePos({ x: e.clientX, y: e.clientY });
-      }
-    };
-    window.addEventListener('mousemove', handler);
-    return () => window.removeEventListener('mousemove', handler);
-  }, [currentAction, currentActionStep]);
 
   useEffect(() => {
     if (currentAction?.arguments[currentActionStep]?.types?.length === 0) {
@@ -578,7 +568,11 @@ function App() {
         fetchPlotPoints={fetchPlotPoints}
         insertComputableFields={insertComputableFields}
       />
-      <ActionRibbon onActionClick={handleActionClick} setStatusMessage={setStatusMessage} />
+      <ActionRibbon
+        onActionClick={handleActionClick}
+        setStatusMessage={setStatusMessage}
+        setClickedActionButtonCorner={setClickedActionButtonCorner}
+      />
       <div className="top-bar">
         <div className="scene-selector">
           {isCreatingScene ? (
@@ -698,7 +692,7 @@ function App() {
       </div>
       <div className="status-bar">{statusMessage}</div>
       <ExpressionModal
-        mousePos={mousePos}
+        actionButtonCorner={clickedActionButtonCorner}
         title={`Enter an expression (argument #${currentActionStep + 1} of ${currentAction ? getActionTitle(currentAction) : '?'})`}
         expression={editedExpression}
         setExpression={setEditedExpression}
