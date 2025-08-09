@@ -1,89 +1,32 @@
-import type { Shape, PartialDBObject, SlidingPointProperties } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, SlidingPointProperties, Line, ObjectProperties, ShapeCreatorInput, ArgumentValue } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
-import { BaseShape } from './BaseShape';
 import { CanvasSlidingPoint } from './CanvasComponents';
 import { LineBasedShape } from './LineBasedShape';
+import { getShapeNameOrPoint, getDefinedOrGridPoint, getPointsFromInput } from '../utils';
+import { BaseShapeCreator } from './BaseShape';
+import { InitialPointShape } from './InitialPointShape';
+import { PointBasedShape } from './PointBasedShape';
 
-export class SlidingPointShape extends BaseShape {
-    public lineDirection: Vector2d;
+export class SlidingPointShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.SlidingPoint;
+    gridPoint: Vector2d;
+    line: Line;
 
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        this.points = [];
-
-        // Default to horizontal direction if no properties
-        if (!dbObject.properties) {
-            this.lineDirection = { x: 1, y: 0 };
-            return;
-        }
-
-        const properties = dbObject.properties as Partial<SlidingPointProperties>;
-        const value = properties.value;
-        const objectName = properties.constraining_object_name;
-
-        // Parse the value to get coordinates
-        if (value) {
-            const coords = this.parseCoordinates(value);
-            if (coords) {
-                this.points.push(coords);
-            }
-        }
-
-        // Compute line direction based on the line the point slides on
-        if (objectName) {
-            // Look up the shape by name
-            const lineShape = shapes.find(s => s.dbObject.name === objectName);
-
-            // Assert that shape exists and is LineABShape
-            if (!lineShape) {
-                throw new Error(`SlidingPoint ${dbObject.name}: Could not find line shape ${objectName}`);
-            }
-
-            if (!(lineShape instanceof LineBasedShape)) {
-                throw new Error(`SlidingPoint ${dbObject.name}: Shape ${objectName} must be a LineAB shape`);
-            }
-            const lineDef = lineShape.getDefinedLine();
-            this.lineDirection = lineDef == null ? { x: 1, y: 0 } : { x: lineDef.n.y, y: -lineDef.n.x };
-        } else {
-            // Default to horizontal direction if no line name
-            this.lineDirection = { x: 1, y: 0 };
-        }
-    }
-
-    private parseCoordinates(value: string): { x: number; y: number } | null {
-        const match = value.match(/^(-?\d+),\s*(-?\d+)$/);
-        if (match) {
-            return {
-                x: parseInt(match[1]),
-                y: parseInt(match[2])
-            };
-        }
-        return null;
+    constructor(name: string, description: string, gridPoint: Vector2d, line: Line) {
+        super(name, description);
+        this.gridPoint = gridPoint;
+        this.line = line;
     }
 
     getActionType(): ActionType | null {
         return ActionType.SlidingPoint;
     }
 
-    getDescription(): string {
-        const properties = this.dbObject.properties as Partial<SlidingPointProperties>;
-        const objectName = properties.constraining_object_name ?? 'undefined';
-        const value = properties.value ?? 'undefined';
-        return `${this.dbObject.name} (${value}) on ${objectName}`;
-    }
-
     getDefinedPoint(): Vector2d | null {
-        return this.points[0] || null;
-    }
-
-    distanceToPoint(point: Vector2d): number {
-        if (this.points.length === 0) return Infinity;
-        return Math.sqrt(
-            Math.pow(point.x - this.points[0].x, 2) + Math.pow(point.y - this.points[0].y, 2)
-        );
+        return this.gridPoint;
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -95,10 +38,46 @@ export class SlidingPointShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        const copy = new SlidingPointShape({ ...this.dbObject, properties: null }, []);
-        copy.points = this.points;
-        copy.dbObject.properties = this.dbObject.properties;
-        copy.lineDirection = this.lineDirection;
-        return copy;
+        return new SlidingPointShape(this.name, this.description, this.gridPoint, this.line);
+    }
+}
+
+export class SlidingPointShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.SlidingPoint;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ObjectProperties {
+        return {
+            value: getShapeNameOrPoint(input.argumentValues[0]?.[0]),
+            constraining_object_name: (input.argumentValues[0]?.[1] as Shape).name,
+        };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const slidingPointProperties = properties as SlidingPointProperties;
+        const gridPoint = getDefinedOrGridPoint(slidingPointProperties.value, shapes);
+        const line = shapes.find(shape => shape.name === slidingPointProperties.constraining_object_name);
+        if (gridPoint == null || line == null || !(line instanceof LineBasedShape)) {
+            throw new Error('Invalid gridPoint or line value');
+        }
+        return [[gridPoint, line]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        const line = (input.argumentValues[0]?.[1] instanceof LineBasedShape) ?
+            (input.argumentValues[0]?.[1] as LineBasedShape).getDefinedLine() : null;
+        if (points.length == 0) {
+            return null;
+        } else {
+            if (line == null) {
+                return new InitialPointShape(input.objectName, points[0]);
+            }
+            return new SlidingPointShape(input.objectName, this.getDescription(input), points[0], line);
+        }
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        const lineName = (input.argumentValues[0]?.[1] as Shape)?.name || 'undefined';
+        return `${input.objectName} (${argumentStringValues[0]}) on ${lineName}`;
     }
 } 

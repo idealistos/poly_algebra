@@ -1,36 +1,28 @@
-import type { Shape, PartialDBObject } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, ObjectProperties, ShapeCreatorInput, FreePointProperties, ArgumentValue } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
-import { BaseShape } from './BaseShape';
+import { BaseShapeCreator } from './BaseShape';
 import { CanvasFreePoint } from './CanvasComponents';
+import { getGridOrHintedPointFromInput, getPointsFromInput, parsePoint } from '../utils';
+import { PointBasedShape } from './PointBasedShape';
 
-export class FreePointShape extends BaseShape {
-    constructor(dbObject: PartialDBObject) {
-        super(dbObject);
-        const value = (dbObject.properties as { value?: string })?.value;
-        const match = value?.match(/^(-?\d+),\s*(-?\d+)$/);
-        this.points = match ? [{ x: parseInt(match[1]), y: parseInt(match[2]) }] : [];
+export class FreePointShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.FreePoint;
+    point: Vector2d;
+
+    constructor(name: string, description: string, point: Vector2d) {
+        super(name, description);
+        this.point = point;
     }
 
     getActionType(): ActionType | null {
         return ActionType.FreePoint;
     }
 
-    getDescription(): string {
-        return `${this.dbObject.name} (${this.points[0]?.x ?? 0}, ${this.points[0]?.y ?? 0})`;
-    }
-
     getDefinedPoint(): Vector2d | null {
-        return this.points[0] || null;
-    }
-
-    distanceToPoint(point: Vector2d): number {
-        if (this.points.length === 0) return Infinity;
-        return Math.sqrt(
-            Math.pow(point.x - this.points[0].x, 2) + Math.pow(point.y - this.points[0].y, 2)
-        );
+        return this.point;
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -42,6 +34,39 @@ export class FreePointShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        return new FreePointShape(this.dbObject);
+        return new FreePointShape(this.name, this.description, this.point);
+    }
+}
+
+export class FreePointShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.FreePoint;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ObjectProperties {
+        const point = getGridOrHintedPointFromInput(input);
+        if (point == null) {
+            throw new Error(`Invalid input: ${JSON.stringify(input)}`);
+        }
+        return { value: `${point.x},${point.y}` };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const value = (properties as FreePointProperties).value;
+        const parsedPoint = parsePoint(value, shapes);
+        if (parsedPoint == null) {
+            throw new Error('Invalid point value');
+        }
+        return [[parsedPoint]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        if (points.length == 0) {
+            return null;
+        }
+        return new FreePointShape(input.objectName, this.getDescription(input), points[0]);
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        return `${input.objectName} ${argumentStringValues[0]}`;
     }
 } 

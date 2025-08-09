@@ -1,62 +1,38 @@
-import type { Shape, PartialDBObject, PpBisectorProperties, Line } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, PpBisectorProperties, Line, ObjectProperties, ShapeCreatorInput, ArgumentValue } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
 import { LineBasedShape } from './LineBasedShape';
 import { CanvasPpBisector } from './CanvasComponents';
-import { getPointDescription, parsePoint } from '../utils';
+import { getShapeNameOrPoint, getDefinedOrGridPoint, getPointsFromInput } from '../utils';
+import { BaseShapeCreator } from './BaseShape';
+import { InitialPointShape } from './InitialPointShape';
 
 export class PpBisectorShape extends LineBasedShape {
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        this.points = [];
-        const properties = dbObject.properties as Partial<PpBisectorProperties>;
-        const point1 = properties.point1;
-        const point2 = properties.point2;
+    objectType: ObjectType = ObjectType.PpBisector;
+    point1: Vector2d;
+    point2: Vector2d;
 
-        // Parse point1
-        if (point1) {
-            const point1Coords = parsePoint(point1, shapes);
-            if (point1Coords) {
-                this.points.push(point1Coords);
-            }
-        }
-
-        // Parse point2
-        if (point2) {
-            const point2Coords = parsePoint(point2, shapes);
-            if (point2Coords) {
-                this.points.push(point2Coords);
-            }
-        }
+    constructor(name: string, description: string, point1: Vector2d, point2: Vector2d) {
+        super(name, description);
+        this.point1 = point1;
+        this.point2 = point2;
     }
 
     getActionType(): ActionType | null {
         return ActionType.PpBisector;
     }
 
-    getDescription(): string {
-        const properties = this.dbObject.properties as Partial<PpBisectorProperties>;
-        const point1 = getPointDescription(properties.point1 ?? null);
-        const point2 = getPointDescription(properties.point2 ?? null);
-        return `${this.dbObject.name} bisecting (${point1}, ${point2})`;
-    }
-
     getDefinedLine(): Line | null {
-        if (this.points.length < 2) return null;
-
-        const p1 = this.points[0];
-        const p2 = this.points[1];
-
         // Calculate midpoint
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
+        const midX = (this.point1.x + this.point2.x) / 2;
+        const midY = (this.point1.y + this.point2.y) / 2;
         const midpoint = { x: midX, y: midY };
 
         // Calculate direction vector of the original line segment
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
+        const dx = this.point2.x - this.point1.x;
+        const dy = this.point2.y - this.point1.y;
 
         // Calculate perpendicular vector n (perpendicular bisector)
         const n = { x: dx, y: dy };
@@ -76,6 +52,42 @@ export class PpBisectorShape extends LineBasedShape {
     }
 
     protected createClone(): Shape {
-        return new PpBisectorShape(this.dbObject, []);
+        return new PpBisectorShape(this.name, this.description, this.point1, this.point2);
+    }
+}
+
+export class PpBisectorShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.PpBisector;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ObjectProperties {
+        return {
+            point1: getShapeNameOrPoint(input.argumentValues[0]?.[0]),
+            point2: getShapeNameOrPoint(input.argumentValues[1]?.[0]),
+        };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const ppBisectorProperties = properties as PpBisectorProperties;
+        const point1 = getDefinedOrGridPoint(ppBisectorProperties.point1, shapes);
+        const point2 = getDefinedOrGridPoint(ppBisectorProperties.point2, shapes);
+        if (point1 == null || point2 == null) {
+            throw new Error('Invalid point1 or point2 value');
+        }
+        return [[point1], [point2]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        if (points.length == 0) {
+            return null;
+        } else if (points.length == 1) {
+            return new InitialPointShape(input.objectName, points[0]);
+        } else {
+            return new PpBisectorShape(input.objectName, this.getDescription(input), points[0], points[1]);
+        }
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        return `${input.objectName} bisecting (${argumentStringValues[0]}, ${argumentStringValues[1]})`;
     }
 } 

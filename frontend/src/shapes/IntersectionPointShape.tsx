@@ -1,81 +1,31 @@
-import type { Shape, PartialDBObject, IntersectionPointProperties } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, IntersectionPointProperties, ShapeCreatorInput, ArgumentValue, ObjectProperties } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
-import { BaseShape } from './BaseShape';
+import { PointBasedShape } from './PointBasedShape';
 import { CanvasIntersectionPoint } from './CanvasComponents';
 import { LineBasedShape } from './LineBasedShape';
+import { BaseShapeCreator } from './BaseShape';
+import { getShapeNameOrPoint, getPointsFromInput } from '../utils';
+import { InitialPointShape } from './InitialPointShape';
 
-export class IntersectionPointShape extends BaseShape {
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        this.points = [];
-        if (dbObject.properties == null) {
-            return;
-        }
+export class IntersectionPointShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.IntersectionPoint;
+    point: Vector2d;
 
-        const properties = dbObject.properties as Partial<IntersectionPointProperties>;
-        const objectName1 = properties.object_name_1;
-        const objectName2 = properties.object_name_2;
 
-        // Handle null object names - keep points empty
-        if (!objectName1 || !objectName2) {
-            return;
-        }
-
-        // Look up the shapes by name
-        const shape1 = shapes.find(s => s.dbObject.name === objectName1);
-        const shape2 = shapes.find(s => s.dbObject.name === objectName2);
-
-        // Assert that shapes exist and are LineABShape
-        if (!shape1 || !shape2) {
-            throw new Error(`IntersectionPoint ${dbObject.name}: Could not find shapes ${objectName1} and/or ${objectName2}`);
-        }
-
-        if (!(shape1 instanceof LineBasedShape) || !(shape2 instanceof LineBasedShape)) {
-            throw new Error(`IntersectionPoint ${dbObject.name}: Shapes ${objectName1} and ${objectName2} must be line-based shapes`);
-        }
-
-        // Calculate intersection point
-        const intersectionPoint = shape1.intersect(shape2);
-        if (intersectionPoint === null) {
-            throw new Error(`IntersectionPoint ${dbObject.name}: Lines ${objectName1} and ${objectName2} are parallel and do not intersect`);
-        }
-
-        // Add the intersection point to points array
-        this.points.push(intersectionPoint);
+    constructor(name: string, description: string, point: Vector2d) {
+        super(name, description);
+        this.point = point;
     }
 
     getActionType(): ActionType | null {
         return ActionType.IntersectionPoint;
     }
 
-    getDescription(): string {
-        const properties = this.dbObject.properties as Partial<IntersectionPointProperties>;
-        const object1 = properties.object_name_1 ?? 'undefined';
-        const object2 = properties.object_name_2 ?? 'undefined';
-        return `${this.dbObject.name} (${object1} × ${object2})`;
-    }
-
     getDefinedPoint(): Vector2d | null {
-        // If we already have the intersection point calculated, return it
-        if (this.points.length > 0) {
-            return this.points[0];
-        }
-
-        // Otherwise, we need to recalculate (this might happen if shapes are updated)
-        // For now, return null since we don't have access to the shapes array here
-        // The intersection should be calculated in the constructor
-        return null;
-    }
-
-    distanceToPoint(point: Vector2d): number {
-        const definedPoint = this.getDefinedPoint();
-        if (!definedPoint) return Infinity;
-        return Math.sqrt(
-            Math.pow(point.x - definedPoint.x, 2) + Math.pow(point.y - definedPoint.y, 2)
-        );
+        return this.point;
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -87,9 +37,52 @@ export class IntersectionPointShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        const copy = new IntersectionPointShape({ ...this.dbObject, properties: null }, []);
-        copy.points = this.points;
-        copy.dbObject.properties = this.dbObject.properties;
-        return copy;
+        return new IntersectionPointShape(this.name, this.description, this.point);
+    }
+}
+
+export class IntersectionPointShapeCreator extends BaseShapeCreator {
+    objectType = ObjectType.IntersectionPoint;
+
+    getDBObjectProperties(input: ShapeCreatorInput): IntersectionPointProperties {
+        return {
+            object_name_1: getShapeNameOrPoint(input.argumentValues[0]?.[0]),
+            object_name_2: getShapeNameOrPoint(input.argumentValues[0]?.[1]),
+        };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const intersectionPointProperties = properties as IntersectionPointProperties;
+        const line1 = shapes.find(shape => shape.name === intersectionPointProperties.object_name_1) as LineBasedShape;
+        const line2 = shapes.find(shape => shape.name === intersectionPointProperties.object_name_2) as LineBasedShape;
+        return [[line1, line2]];
+    }
+
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        if (points.length === 0 && input.argumentValues.length === 0) {
+            return null;
+        } else if (points.length === 0 && input.argumentValues[0]?.[0] instanceof LineBasedShape && input.argumentValues[0]?.[1] instanceof LineBasedShape) {
+            const line1 = input.argumentValues[0]?.[0] as LineBasedShape;
+            const line2 = input.argumentValues[0]?.[1] as LineBasedShape;
+            const point = line1.intersect(line2);
+            if (point == null) {
+                throw new Error('Lines are parallel');
+            }
+            return new IntersectionPointShape(input.objectName, this.getDescription(input), point);
+        } else if (points.length == 1) {
+            return new InitialPointShape(input.objectName, points[0]);
+        } else {
+            throw new Error('Invalid input');
+        }
+
+
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        const line1Name = argumentStringValues[0] ?? '?';
+        const line2Name = (input.argumentValues[0]?.[1] as Shape).name;
+        return `${input.objectName} (${line1Name} × ${line2Name})`;
     }
 } 

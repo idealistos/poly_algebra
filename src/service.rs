@@ -376,16 +376,18 @@ async fn get_actions() -> impl Responder {
                 ObjectType::TwoPointDistanceInvariant.to_string(),
                 ObjectType::PointToLineDistanceInvariant.to_string(),
             ],
-            arguments: vec![Argument {
-                types: vec!["AnyDefinedOrGridPoint".to_string()],
-                hint: "Select an already defined point or a point on the grid (1 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            },
-            Argument {
-                types: vec!["AnyDefinedOrGridPoint".to_string(), "Line".to_string()],
-                hint: "Select an already defined point or a point on the grid, or a line (2 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            }],
+            arguments: vec![
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string()],
+                    hint: "Select an already defined point or a point on the grid (1 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec!["AnyDefinedOrGridPoint".to_string(), "Line".to_string()],
+                    hint: "Select an already defined point or a point on the grid, or a line (2 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+            ],
             description:
                 "Distance Invariant: specifies that the distance from a point to another point or line is constant"
                     .to_string(),
@@ -399,16 +401,18 @@ async fn get_actions() -> impl Responder {
             object_types: vec![
                 ObjectType::TwoLineAngleInvariant.to_string(),
             ],
-            arguments: vec![Argument {
-                types: vec!["Line".to_string()],
-                hint: "Select a line (1 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            },
-            Argument {
-                types: vec!["Line".to_string()],
-                hint: "Select a line (2 of 2)".to_string(),
-                exclusive_object_types: vec![],
-            }],
+            arguments: vec![
+                Argument {
+                    types: vec!["Line".to_string()],
+                    hint: "Select a line (1 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+                Argument {
+                    types: vec!["Line".to_string()],
+                    hint: "Select a line (2 of 2)".to_string(),
+                    exclusive_object_types: vec![],
+                },
+            ],
             description:
                 "Angle Invariant: specifies that the angle between two lines is constant"
                     .to_string(),

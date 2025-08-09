@@ -1,56 +1,34 @@
-import type { Shape, PartialDBObject, TwoPointDistanceInvariantProperties } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, TwoPointDistanceInvariantProperties, ObjectProperties, ShapeCreatorInput, ArgumentValue } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
-import { BaseShape } from './BaseShape';
+import { BaseShape, BaseShapeCreator } from './BaseShape';
 import { CanvasTwoPointDistanceInvariant } from './CanvasComponents';
-import { getPointDescription, distanceToLineSegment, parsePoint } from '../utils';
+import { distanceToLineSegment, getShapeNameOrPoint, getDefinedOrGridPoint, getPointsFromInput } from '../utils';
+import { InitialPointShape } from './InitialPointShape';
 
 export class TwoPointDistanceInvariantShape extends BaseShape {
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        this.points = [];
+    objectType: ObjectType = ObjectType.TwoPointDistanceInvariant;
+    point1: Vector2d;
+    point2: Vector2d;
 
-        const properties = dbObject.properties as Partial<TwoPointDistanceInvariantProperties>;
-        const point1 = properties.point1;
-        const point2 = properties.point2;
-
-        // Parse point1
-        if (point1) {
-            const point1Coords = parsePoint(point1, shapes);
-            if (point1Coords) {
-                this.points.push(point1Coords);
-            }
-        }
-
-        // Parse point2
-        if (point2) {
-            const point2Coords = parsePoint(point2, shapes);
-            if (point2Coords) {
-                this.points.push(point2Coords);
-            }
-        }
+    constructor(name: string, description: string, point1: Vector2d, point2: Vector2d) {
+        super(name, description);
+        this.point1 = point1;
+        this.point2 = point2;
     }
 
     getActionType(): ActionType | null {
         return ActionType.DistanceInvariant;
     }
 
-    getDescription(): string {
-        const properties = this.dbObject.properties as Partial<TwoPointDistanceInvariantProperties>;
-        const point1 = getPointDescription(properties.point1 ?? null);
-        const point2 = getPointDescription(properties.point2 ?? null);
-        return `d(${point1}, ${point2}) = const`;
+    getCoveredPoints(): { x: number; y: number }[] {
+        return [];
     }
 
     distanceToPoint(point: Vector2d): number {
-        if (this.points.length < 2) return Infinity;
-
-        const p1 = this.points[0];
-        const p2 = this.points[1];
-
-        return distanceToLineSegment(point, p1, p2);
+        return distanceToLineSegment(point, this.point1, this.point2);
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -62,6 +40,42 @@ export class TwoPointDistanceInvariantShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        return new TwoPointDistanceInvariantShape(this.dbObject, []);
+        return new TwoPointDistanceInvariantShape(this.name, this.description, this.point1, this.point2);
+    }
+}
+
+export class TwoPointDistanceInvariantShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.TwoPointDistanceInvariant;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ObjectProperties {
+        return {
+            point1: getShapeNameOrPoint(input.argumentValues[0]?.[0]),
+            point2: getShapeNameOrPoint(input.argumentValues[1]?.[0]),
+        };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const twoPointDistanceProperties = properties as TwoPointDistanceInvariantProperties;
+        const point1 = getDefinedOrGridPoint(twoPointDistanceProperties.point1, shapes);
+        const point2 = getDefinedOrGridPoint(twoPointDistanceProperties.point2, shapes);
+        if (point1 == null || point2 == null) {
+            throw new Error('Invalid point1 or point2 value');
+        }
+        return [[point1], [point2]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        if (points.length == 0) {
+            return null;
+        } else if (points.length == 1) {
+            return new InitialPointShape(input.objectName, points[0]);
+        } else {
+            return new TwoPointDistanceInvariantShape(input.objectName, this.getDescription(input), points[0], points[1]);
+        }
+    }
+
+    protected getDescriptionInner(_input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        return `d(${argumentStringValues[0]}, ${argumentStringValues[1]}) = const`;
     }
 } 

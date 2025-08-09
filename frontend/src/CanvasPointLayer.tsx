@@ -22,10 +22,8 @@ const CanvasPointLayer: React.FC<CanvasPointLayerProps> = ({
     useEffect(() => {
         // Helper function to get locus ordinal number
         const getLocusOrdinal = (locusName: string) => {
-            const locusShapes = shapes.filter(shape =>
-                shape.dbObject.object_type === ObjectType.Locus
-            );
-            return locusShapes.findIndex(shape => shape.dbObject.name === locusName) % 10;
+            const locusShapes = shapes.filter(shape => shape.objectType === ObjectType.Locus);
+            return locusShapes.findIndex(shape => shape.name === locusName) % 10;
         };
 
         const canvas = canvasRef.current;

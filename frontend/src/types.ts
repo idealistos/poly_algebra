@@ -49,6 +49,10 @@ export interface PpBisectorProperties {
   point2: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface ParameterProperties {
+}
+
 export interface InvariantProperties {
   formula: string;
 }
@@ -111,19 +115,20 @@ export type ObjectProperties =
   | MidpointProperties
   | IntersectionPointProperties
   | SlidingPointProperties
+  | ProjectionProperties
+  | ReflectionProperties
+  | ComputedPointProperties
+  | ScaledVectorPointProperties
   | LineABProperties
   | PpBisectorProperties
   | PpToLineProperties
   | PlToLineProperties
-  | ProjectionProperties
-  | ReflectionProperties
-  | ScaledVectorPointProperties
-  | ComputedPointProperties
-  | InvariantProperties
-  | LocusProperties
+  | ParameterProperties
   | TwoPointDistanceInvariantProperties
   | PointToLineDistanceInvariantProperties
   | TwoLineAngleInvariantProperties
+  | InvariantProperties
+  | LocusProperties
   | null;
 
 export interface DBObject {
@@ -138,6 +143,8 @@ export interface PartialDBObject {
   properties: Partial<ObjectProperties>;
 }
 
+export type ArgumentValue = (Vector2d | Shape)[];
+
 export type PlotPointElement = number | { r: number; g: number; b: number };
 
 export interface PlotData {
@@ -148,20 +155,34 @@ export interface PlotData {
 }
 
 export interface Shape {
-  dbObject: PartialDBObject;
+  objectType: ObjectType | null;
   state: ShapeState;
-  points: Vector2d[];
+  name: string;
+  description: string;
   getActionType(): ActionType | null;
   getCoveredPoints(): { x: number; y: number }[];
   getIcon(): React.ReactNode | null;
-  getDescription(): string;
   clone(): Shape;
   getCanvasShape(canvasProperties?: CanvasProperties, key?: string): React.ReactNode;
-  getDBObjectForNextStep(): PartialDBObject | null;
   getDefinedPoint(): Vector2d | null;
   closeToPoint(point: Vector2d, delta: number): boolean;
   distanceToPoint(point: Vector2d): number;
-  updatePoints(step: number, point: Vector2d): void;
+}
+
+export interface ShapeCreatorInput {
+  objectName: string;
+  validatedExpressions: string[];
+  expressionValues: number[];
+  argumentValues: ArgumentValue[];
+  hintedObjectPoint: Vector2d | null;
+  locusOrdinal: number | null;
+}
+
+export interface ShapeCreator {
+  objectType: ObjectType;
+  getDBObjectProperties(input: ShapeCreatorInput): Partial<ObjectProperties>;
+  getInputForDBObject(dbObject: DBObject, shapes: Shape[]): ShapeCreatorInput;
+  createShape(input: ShapeCreatorInput): Shape | null;
 }
 
 export interface Line {
@@ -173,3 +194,8 @@ export interface CanvasProperties {
   topLeft: { x: number; y: number };
   scale: number;
 } 
+
+export function argValuesAreEqual(argValue1: ArgumentValue, argValue2: ArgumentValue): boolean {
+  return argValue1 != null && argValue2 != null && argValue1.length === argValue2.length &&
+      argValue1.every((value, index) => value === argValue2[index]);
+}

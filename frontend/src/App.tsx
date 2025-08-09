@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useState } from 'react';
 import SceneCanvas from './SceneCanvas';
 import { ActionRibbon } from './ActionRibbon';
 import { ObjectType, ShapeState } from './enums';
-import type { Action, Shape, PlotData, PartialDBObject, ComputedPointProperties, ScaledVectorPointProperties } from './types';
+import type { Action, Shape, PlotData } from './types';
 import './App.css';
-import { createShapeForDBObject, getActionTitle, PLOT_COLORS, getDBObjectForExpressions } from './utils';
 import { SceneManagementModal } from './SceneManagementModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import Legend from './Legend';
 import type { LocusShape } from './shapes/LocusShape';
+import { Stage } from './Stage';
+import { PLOT_COLORS } from './utils';
 
 function ExpressionModal({
   actionButtonCorner,
@@ -72,7 +73,7 @@ async function deleteShape(
 ) {
   try {
     // First, check for dependents
-    const dependentsResponse = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.dbObject.name}/dependents`);
+    const dependentsResponse = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.name}/dependents`);
 
     if (!dependentsResponse.ok) {
       const text = await dependentsResponse.text();
@@ -82,14 +83,14 @@ async function deleteShape(
     const dependents: string[] = await dependentsResponse.json();
 
     // Filter out the object itself from dependents for the confirmation message
-    const otherDependents = dependents.filter(name => name !== shape.dbObject.name);
+    const otherDependents = dependents.filter(name => name !== shape.name);
 
     // If there are other dependents, show confirmation modal
     if (otherDependents.length > 0 && setConfirmationModal) {
       setConfirmationModal({
         isOpen: true,
         title: 'Delete Object',
-        message: `Are you sure you want to delete "${shape.dbObject.name}"?`,
+        message: `Are you sure you want to delete "${shape.name}"?`,
         dependents: otherDependents,
         onConfirm: async () => {
           // Close the modal
@@ -116,7 +117,7 @@ async function performDeletion(
   setShapes: React.Dispatch<React.SetStateAction<Shape[]>>,
   setDisplayedPlotNames?: React.Dispatch<React.SetStateAction<Set<string>>>
 ) {
-  const response = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.dbObject.name}`, {
+  const response = await fetch(`http://localhost:8080/scenes/${sceneId}/${shape.name}`, {
     method: 'DELETE',
   });
 
@@ -131,11 +132,11 @@ async function performDeletion(
   // Remove all shapes whose names are in the deletedNames list, plus the original shape
   setShapes(prevShapes => {
     const filteredShapes = prevShapes.filter(
-      s => s.dbObject.name !== shape.dbObject.name && !deletedNames.includes(s.dbObject.name)
+      s => s.name !== shape.name && !deletedNames.includes(s.name)
     );
 
     // Update locusOrdinal for remaining Locus shapes
-    const remainingLocusShapes = filteredShapes.filter(s => s.dbObject.object_type === 'Locus');
+    const remainingLocusShapes = filteredShapes.filter(s => s.objectType === 'Locus');
     remainingLocusShapes.forEach((locusShape, index) => {
       if ('locusOrdinal' in locusShape) {
         (locusShape as LocusShape).locusOrdinal = index;
@@ -146,11 +147,11 @@ async function performDeletion(
   });
 
   // Clean up plot-related state for Locus objects
-  if (shape.dbObject.object_type === 'Locus') {
+  if (shape.objectType === 'Locus') {
     // Remove from displayedPlotNames
     setDisplayedPlotNames?.(prevNames => {
       const newNames = new Set(prevNames);
-      newNames.delete(shape.dbObject.name);
+      newNames.delete(shape.name);
       return newNames;
     });
   }
@@ -177,10 +178,7 @@ function App() {
   const [selectedSceneId, setSelectedSceneId] = useState<number | null>(null);
   const [isCreatingScene, setIsCreatingScene] = useState(false);
   const [newSceneName, setNewSceneName] = useState('');
-  const [currentAction, setCurrentAction] = useState<Action | null>(null);
-  const [currentActionStep, setCurrentActionStep] = useState<number>(0);
-  const [stagedShapeName, setStagedShapeName] = useState<string | null>(null);
-  const [validatedExpressions, setValidatedExpressions] = useState<Array<string>>([]);
+  const [stage, setStage] = useState<Stage | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [editedExpression, setEditedExpression] = useState('');
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -203,13 +201,10 @@ function App() {
   const [clickedActionButtonCorner, setClickedActionButtonCorner] = useState<{ x: number, y: number } | null>(null);
 
   const unsetAction = useCallback(() => {
-    setCurrentAction(null);
-    setStagedShapeName(null);
-    setCurrentActionStep(0);
+    setStage(null);
     setStatusMessage(null);
     setEditedExpression('');
-    setValidatedExpressions([]);
-  }, [setCurrentAction, setStagedShapeName, setCurrentActionStep, setStatusMessage, setEditedExpression]);
+  }, [setStage, setStatusMessage, setEditedExpression]);
 
   useEffect(() => {
     fetch('http://localhost:8080/scenes')
@@ -264,33 +259,33 @@ function App() {
   };
 
   useEffect(() => {
-    if (currentAction?.arguments[currentActionStep]?.types?.length === 0) {
+    if (stage?.isCurrentArgumentAnExpression() ?? false) {
       setEditedExpression('');
     }
-  }, [currentAction, currentActionStep]);
+  }, [stage, stage?.action, stage?.currentStep]);
 
   // Reset state when scene changes
   useEffect(() => {
-    setStagedShapeName(null);
+    setStage(null);
     setStatusMessage(null);
     setDisplayedPlotNames(new Set());
     setPlotDataByLocusName({});
     setShapes([]);
-    setValidatedExpressions([]);
   }, [selectedSceneId]);
 
   const handleActionClick = useCallback((action: Action) => {
     unsetAction();
-    setCurrentAction(action);
-    setStatusMessage(action.arguments[0]?.hint ?? null);
-  }, [unsetAction, setCurrentAction, setStatusMessage]);
+    const stage = new Stage(action, shapes);
+    setStage(stage);
+    setStatusMessage(stage.getArgumentHint());
+  }, [unsetAction, setStatusMessage, setStage, shapes]);
 
   const selectShape = useCallback((shape: Shape) => {
     const shapeCopy = shape.clone();
     shapeCopy.state = ShapeState.Selected;
     setShapes(prevShapes => prevShapes.map(
       s => {
-        if (s.dbObject.name === shape.dbObject.name) {
+        if (s.name === shape.name) {
           return shapeCopy;
         } else if (s.state === ShapeState.Selected) {
           s.state = ShapeState.Default;
@@ -373,10 +368,8 @@ function App() {
 
   // Helper function to get locus ordinal number
   const getLocusOrdinal = useCallback((locusName: string) => {
-    const locusShapes = shapes.filter(shape =>
-      shape.dbObject.object_type === ObjectType.Locus
-    );
-    return locusShapes.findIndex(shape => shape.dbObject.name === locusName) % 10;
+    const locusShapes = shapes.filter(shape => shape.objectType === ObjectType.Locus);
+    return locusShapes.findIndex(shape => shape.name === locusName) % 10;
   }, [shapes]);
 
   const handleTogglePlot = useCallback(async (shapeName: string) => {
@@ -408,75 +401,13 @@ function App() {
     }
   }, [displayedPlotNames, plotDataByLocusName, fetchPlotPoints]);
 
-  const getComputableFieldsCallbacks = (objectType: ObjectType) => {
-    switch (objectType) {
-      case ObjectType.ComputedPoint:
-        return {
-          dbObjectToInput: (dbObject: PartialDBObject) => {
-            const props = dbObject.properties as ComputedPointProperties;
-            return [props.x_expr, props.y_expr];
-          },
-          outputToProps: (output: number[]) => {
-            return { value: `${output[0]},${output[1]}` };
-          }
-        };
-      case ObjectType.ScaledVectorPoint:
-        return {
-          dbObjectToInput: (dbObject: PartialDBObject) => {
-            const props = dbObject.properties as ScaledVectorPointProperties;
-            return [props.k];
-          },
-          outputToProps: (output: number[]) => {
-            return { k_value: output[0] };
-          }
-        };
-      default:
-        return null;
-    }
-  };
-
-  const insertComputableFields = async (sceneId: number, dbObject: PartialDBObject): Promise<PartialDBObject> => {
-    const callbacks = getComputableFieldsCallbacks(dbObject.object_type);
-    if (callbacks == null) {
-      return dbObject;
-    }
-    const { dbObjectToInput, outputToProps } = callbacks;
-
-    try {
-      const input = dbObjectToInput(dbObject);
-      const jsonString = JSON.stringify(input);
-      const jsonParam = btoa(jsonString).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-
-      const response = await fetch(`http://localhost:8080/scenes/${sceneId}/initial?json=${jsonParam}`);
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || response.statusText);
-      }
-
-      const result = await response.json();
-      const props = outputToProps(result.values);
-
-      return {
-        ...dbObject,
-        properties: {
-          ...dbObject.properties,
-          ...props
-        }
-      };
-    } catch (err) {
-      console.error('Failed to compute initial values for ComputedPoint:', err);
-      throw err;
-    }
-  };
-
   const handleExpressionSubmit = async () => {
-    if (!selectedSceneId || !stagedShapeName || !editedExpression.trim() || !currentAction) return;
+    if (!selectedSceneId || !stage || !editedExpression.trim()) return;
 
     const expression = editedExpression.trim();
 
-    // Validate the expression
     try {
+      // Validate the expression
       const jsonString = JSON.stringify([expression]);
       const jsonParam = btoa(jsonString).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
       const validationResponse = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/validate?json=${jsonParam}`);
@@ -500,6 +431,17 @@ function App() {
         return;
       }
 
+      // Calculate the initial value of the expression
+      const response = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/initial?json=${jsonParam}`);
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+
+      const values = (await response.json()).values;
+      stage.addValidatedExpression(expression, values[0]);
+
       // Clear any previous error styling
       const inputElement = document.querySelector('.modal-input') as HTMLInputElement;
       if (inputElement) {
@@ -507,21 +449,25 @@ function App() {
         inputElement.style.backgroundColor = '';
       }
 
-      const newExpressions = [...validatedExpressions, expression];
-      // Add expression to validatedExpressions
-      setValidatedExpressions(prev => [...prev, expression]);
+      // Update status message with the hint for the next argument (if not ready)
+      if (!stage.isReady()) {
+        setStatusMessage(stage.getArgumentHint());
+      }
 
       // Check if this is the last step
-      if (currentActionStep === currentAction.arguments.length - 1) {
+      if (stage.isReady()) {
+        const shape = stage.getShape();
+        if (shape == null) {
+          return;
+        }
         // Last step: generate DB object and create it
-        const dbObject = getDBObjectForExpressions(stagedShapeName, newExpressions, currentAction);
-        const dbObjectWithComputedFields = await insertComputableFields(selectedSceneId, dbObject);
+        const dbObject = stage.getDBObject();
 
         try {
           const res = await fetch(`http://localhost:8080/scenes/${selectedSceneId}/objects`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(dbObjectWithComputedFields),
+            body: JSON.stringify(dbObject),
           });
 
           if (!res.ok) {
@@ -530,14 +476,13 @@ function App() {
           }
 
           unsetAction();
-          setShapes(prevShapes => [...prevShapes, createShapeForDBObject(dbObjectWithComputedFields, shapes, -1)]);
+          setShapes(prevShapes => [...prevShapes, shape]);
+          setStatusMessage(`Created ${shape.name}: ${shape.description}`);
         } catch (err) {
           console.error('Failed to POST object:', err);
           setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
         }
       } else {
-        // Not the last step: increment currentActionStep
-        setCurrentActionStep(prev => prev + 1);
         setEditedExpression('');
       }
 
@@ -552,12 +497,7 @@ function App() {
     <div className="app-container">
       <SceneCanvas
         sceneId={selectedSceneId}
-        currentAction={currentAction}
-        currentActionStep={currentActionStep}
-        setCurrentActionStep={setCurrentActionStep}
-        stagedShapeName={stagedShapeName}
-        setStagedShapeName={setStagedShapeName}
-        validatedExpressions={validatedExpressions}
+        stage={stage}
         unsetAction={unsetAction}
         shapes={shapes}
         setShapes={setShapes}
@@ -566,7 +506,6 @@ function App() {
         plotDataByLocusName={plotDataByLocusName}
         setPlotDataByLocusName={setPlotDataByLocusName}
         fetchPlotPoints={fetchPlotPoints}
-        insertComputableFields={insertComputableFields}
       />
       <ActionRibbon
         onActionClick={handleActionClick}
@@ -644,36 +583,36 @@ function App() {
         <div className="objects-box">
           {shapes.map((shape, idx) => (
             <div
-              key={shape.dbObject.name + idx}
+              key={shape.name + idx}
               className={`object-line${shape.state === 'Selected' || shape.state === 'SuggestedSelected' ? ' object-line-selected' : ''}`}
               onClick={() => selectShape(shape)}
             >
               <span className="object-icon">{shape.getIcon()}</span>
               <span
                 className="object-description"
-                title={shape.getDescription()}
+                title={shape.description}
               >
-                {shape.getDescription()}
+                {shape.description}
               </span>
-              {shape.dbObject.object_type === ObjectType.Locus && (
+              {shape.objectType === ObjectType.Locus && (
                 <button
                   className="plot-toggle-button"
                   style={{
-                    backgroundColor: displayedPlotNames.has(shape.dbObject.name)
-                      ? PLOT_COLORS[getLocusOrdinal(shape.dbObject.name)]
+                    backgroundColor: displayedPlotNames.has(shape.name)
+                      ? PLOT_COLORS[getLocusOrdinal(shape.name)]
                       : '#f5f5f5',
-                    color: displayedPlotNames.has(shape.dbObject.name) ? 'white' : '#666',
-                    borderColor: displayedPlotNames.has(shape.dbObject.name)
-                      ? PLOT_COLORS[getLocusOrdinal(shape.dbObject.name)]
+                    color: displayedPlotNames.has(shape.name) ? 'white' : '#666',
+                    borderColor: displayedPlotNames.has(shape.name)
+                      ? PLOT_COLORS[getLocusOrdinal(shape.name)]
                       : '#ddd'
                   }}
-                  title={displayedPlotNames.has(shape.dbObject.name) ? 'Hide plot' : 'Show plot'}
+                  title={displayedPlotNames.has(shape.name) ? 'Hide plot' : 'Show plot'}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleTogglePlot(shape.dbObject.name);
+                    handleTogglePlot(shape.name);
                   }}
                 >
-                  {displayedPlotNames.has(shape.dbObject.name) ? 'on' : 'off'}
+                  {displayedPlotNames.has(shape.name) ? 'on' : 'off'}
                 </button>
               )}
               <button
@@ -693,12 +632,12 @@ function App() {
       <div className="status-bar">{statusMessage}</div>
       <ExpressionModal
         actionButtonCorner={clickedActionButtonCorner}
-        title={`Enter an expression (argument #${currentActionStep + 1} of ${currentAction ? getActionTitle(currentAction) : '?'})`}
+        title={`Enter an expression (argument #${(stage?.currentStep ?? 0) + 1} of ${stage?.getActionTitle() ?? '?'})`}
         expression={editedExpression}
         setExpression={setEditedExpression}
         onSubmit={handleExpressionSubmit}
         onCancel={unsetAction}
-        visible={currentAction?.arguments[currentActionStep]?.types?.length === 0}
+        visible={stage?.isCurrentArgumentAnExpression() ?? false}
       />
       <SceneManagementModal
         isOpen={isSceneManagementModalOpen}

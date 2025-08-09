@@ -1,21 +1,29 @@
 import React from 'react';
 import { Circle, Line, Text, Path } from "react-konva";
-import type { Shape } from '../types';
 import { getColor, ShapeState } from '../enums';
 import type { Vector2d } from 'konva/lib/types';
-import { PLOT_COLORS } from '../utils';
+import { getTwoPointsOnLine, PLOT_COLORS } from '../utils';
 import type { LocusShape } from './LocusShape';
 import type { TwoLineAngleInvariantShape } from './TwoLineAngleInvariantShape';
 import type { PpBisectorShape } from './PpBisectorShape';
 import type { PpToLineShape } from './PpToLineShape';
 import type { PlToLineShape } from './PlToLineShape';
+import type { LineABShape } from './LineABShape';
 import type { SlidingPointShape } from './SlidingPointShape';
-import type { ScaledVectorPointProperties } from '../types';
+import type { TwoPointDistanceInvariantShape } from './TwoPointDistanceInvariantShape';
+import type { ComputedPointShape } from './ComputedPointShape';
+import type { PointToLineDistanceInvariantShape } from './PointToLineDistanceInvariantShape';
+import type { FixedPointShape } from './FixedPointShape';
+import type { FreePointShape } from './FreePointShape';
+import type { MidpointShape } from './MidpointShape';
+import type { ProjectionShape } from './ProjectionShape';
+import type { ReflectionShape } from './ReflectionShape';
+import type { InitialPointShape } from './InitialPointShape';
+import type { IntersectionPointShape } from './IntersectionPointShape';
+import type { ScaledVectorPointShape } from './ScaledVectorPointShape';
 
-export function CanvasFixedPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    const coords = shape.points[0];
-    if (!coords) return null;
-    const { px, py } = getPhysicalCoords(coords);
+export function CanvasFixedPoint({ shape, getPhysicalCoords }: { shape: FixedPointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const { px, py } = getPhysicalCoords(shape.point);
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
 
@@ -37,15 +45,13 @@ export function CanvasFixedPoint({ shape, getPhysicalCoords }: { shape: Shape; g
             <Line points={[px, py + 8, px, py + 12]} stroke={color} strokeWidth={2} />
             <Line points={[px - 8, py, px - 12, py]} stroke={color} strokeWidth={2} />
             <Line points={[px + 8, py, px + 12, py]} stroke={color} strokeWidth={2} />
-            <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={px + 10} y={py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasFreePoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    const coords = shape.points[0];
-    if (!coords) return null;
-    const { px, py } = getPhysicalCoords(coords);
+export function CanvasFreePoint({ shape, getPhysicalCoords }: { shape: FreePointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const { px, py } = getPhysicalCoords(shape.point);
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
     return (
@@ -62,15 +68,13 @@ export function CanvasFreePoint({ shape, getPhysicalCoords }: { shape: Shape; ge
             )}
             <Circle x={px} y={py} radius={8} stroke={color} strokeWidth={2} />
             <Circle x={px} y={py} radius={4} fill={color} />
-            <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={px + 10} y={py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasComputedPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    const coords = shape.points[0];
-    if (!coords) return null;
-    const { px, py } = getPhysicalCoords(coords);
+export function CanvasComputedPoint({ shape, getPhysicalCoords }: { shape: ComputedPointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const { px, py } = getPhysicalCoords(shape.point);
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
     return (
@@ -91,25 +95,22 @@ export function CanvasComputedPoint({ shape, getPhysicalCoords }: { shape: Shape
             <Path data={`M${px - 3} ${py} A8 8 0 0 1 ${px + 9} ${py}`} stroke={color} strokeWidth={1.2} />
             <Path data={`M${px + 1.5} ${py - 2.598} A8 8 0 0 1 ${px - 4.5} ${py + 7.794}`} stroke={color} strokeWidth={1.2} />
             <Path data={`M${px + 1.5} ${py + 2.598} A8 8 0 0 1 ${px - 4.5} ${py - 7.794}`} stroke={color} strokeWidth={1.2} />
-            <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={px + 10} y={py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasScaledVectorPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 3) return null;
-
-    const point0 = getPhysicalCoords(shape.points[0]);
-    const point1 = getPhysicalCoords(shape.points[1]);
-    const point2 = getPhysicalCoords(shape.points[2]);
+export function CanvasScaledVectorPoint({ shape, getPhysicalCoords }: { shape: ScaledVectorPointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const point0 = getPhysicalCoords(shape.point1);
+    const point1 = getPhysicalCoords(shape.point2);
+    const point2 = getPhysicalCoords(shape.point);
 
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
     const isDefault = shape.state === ShapeState.Default;
 
-    // Get k_value from properties
-    const properties = shape.dbObject.properties as ScaledVectorPointProperties;
-    const kValue = properties?.k_value;
+    // Get k_value from shape properties
+    const kValue = shape.kValue;
 
     // Determine if we should show the second dashed line
     const shouldShowSecondDashedLine = kValue !== undefined && kValue < 1.0;
@@ -281,30 +282,26 @@ export function CanvasScaledVectorPoint({ shape, getPhysicalCoords }: { shape: S
             />
 
             {/* Text label */}
-            <Text x={point2.px + 10} y={point2.py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={point2.px + 10} y={point2.py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasInitialPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    const coords = shape.points[0];
-    if (!coords) return null;
-    const { px, py } = getPhysicalCoords(coords);
+export function CanvasInitialPoint({ shape, getPhysicalCoords }: { shape: InitialPointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const { px, py } = getPhysicalCoords(shape.point);
     const color = getColor(shape);
 
     return (
         <>
             <Circle x={px} y={py} radius={5} fill={color} />
-            <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={px + 10} y={py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasMidpoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 2) return null;
-
-    const point1 = getPhysicalCoords(shape.points[0]);
-    const point2 = getPhysicalCoords(shape.points[1]);
+export function CanvasMidpoint({ shape, getPhysicalCoords }: { shape: MidpointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const point1 = getPhysicalCoords(shape.point1);
+    const point2 = getPhysicalCoords(shape.point2);
 
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
@@ -412,16 +409,14 @@ export function CanvasMidpoint({ shape, getPhysicalCoords }: { shape: Shape; get
             />
 
             {/* Label */}
-            <Text x={midX + 10} y={midY - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={midX + 10} y={midY - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasLineAB({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 2) return null;
-
-    const point1 = getPhysicalCoords(shape.points[0]);
-    const point2 = getPhysicalCoords(shape.points[1]);
+export function CanvasLineAB({ shape, getPhysicalCoords }: { shape: LineABShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const point1 = getPhysicalCoords(shape.point1);
+    const point2 = getPhysicalCoords(shape.point2);
 
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
@@ -468,7 +463,7 @@ export function CanvasLineAB({ shape, getPhysicalCoords }: { shape: Shape; getPh
                 <Text
                     x={x + 10}
                     y={(point1.py + point2.py) / 2 - 20}
-                    text={shape.dbObject.name}
+                    text={shape.name}
                     fontSize={16}
                     fill={color}
                 />
@@ -535,7 +530,7 @@ export function CanvasLineAB({ shape, getPhysicalCoords }: { shape: Shape; getPh
             <Text
                 x={(point1.px + point2.px) / 2 + 10}
                 y={(point1.py + point2.py) / 2 - 20}
-                text={shape.dbObject.name}
+                text={shape.name}
                 fontSize={16}
                 fill={color}
             />
@@ -544,10 +539,8 @@ export function CanvasLineAB({ shape, getPhysicalCoords }: { shape: Shape; getPh
 }
 
 export function CanvasPpBisector({ shape, getPhysicalCoords }: { shape: PpBisectorShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 2) return null;
-
-    const point1 = getPhysicalCoords(shape.points[0]);
-    const point2 = getPhysicalCoords(shape.points[1]);
+    const point1 = getPhysicalCoords(shape.point1);
+    const point2 = getPhysicalCoords(shape.point2);
 
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
@@ -665,7 +658,7 @@ export function CanvasPpBisector({ shape, getPhysicalCoords }: { shape: PpBisect
                 <Text
                     x={x + 10}
                     y={(point1.py + point2.py) / 2 - 20}
-                    text={shape.dbObject.name}
+                    text={shape.name}
                     fontSize={16}
                     fill={color}
                 />
@@ -779,7 +772,7 @@ export function CanvasPpBisector({ shape, getPhysicalCoords }: { shape: PpBisect
             <Text
                 x={(point1.px + point2.px) / 2 + 10}
                 y={(point1.py + point2.py) / 2 - 20}
-                text={shape.dbObject.name}
+                text={shape.name}
                 fontSize={16}
                 fill={color}
             />
@@ -788,7 +781,6 @@ export function CanvasPpBisector({ shape, getPhysicalCoords }: { shape: PpBisect
 }
 
 export function CanvasPpToLine({ shape, getPhysicalCoords }: { shape: PpToLineShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length === 0) return null;
 
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
@@ -797,94 +789,15 @@ export function CanvasPpToLine({ shape, getPhysicalCoords }: { shape: PpToLineSh
 
     // Early return for hinted state - only show dotted line
     if (isHinted) {
-        if (shape.points.length < 2) return null;
+        throw new Error("CanvasProjection should be used instead of CanvasPpToLine for Hinted state");
 
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-
-        // Get the two points
-        const point1 = getPhysicalCoords(shape.points[0]);
-        const point2 = getPhysicalCoords(shape.points[1]);
-
-        // Calculate line direction
-        const dx = point2.px - point1.px;
-        const dy = point2.py - point1.py;
-        const length = Math.sqrt(dx * dx + dy * dy);
-
-        if (length === 0) return null; // Avoid division by zero
-
-        // Calculate line equation: y = mx + b
-        const m = dy / dx;
-        const b = point1.py - m * point1.px;
-
-        // Find intersection points with canvas boundaries
-        const intersections = [];
-
-        // Left boundary (x = 0)
-        const leftY = b;
-        if (leftY >= 0 && leftY <= height) {
-            intersections.push({ x: 0, y: leftY });
-        }
-
-        // Right boundary (x = width)
-        const rightY = m * width + b;
-        if (rightY >= 0 && rightY <= height) {
-            intersections.push({ x: width, y: rightY });
-        }
-
-        // Top boundary (y = 0)
-        const topX = -b / m;
-        if (topX >= 0 && topX <= width) {
-            intersections.push({ x: topX, y: 0 });
-        }
-
-        // Bottom boundary (y = height)
-        const bottomX = (height - b) / m;
-        if (bottomX >= 0 && bottomX <= width) {
-            intersections.push({ x: bottomX, y: height });
-        }
-
-        // Find the two points that give the longest line segment
-        let maxDistance = 0;
-        let x1 = point1.px, y1 = point1.py, x2 = point2.px, y2 = point2.py;
-
-        for (let i = 0; i < intersections.length; i++) {
-            for (let j = i + 1; j < intersections.length; j++) {
-                const dist = Math.sqrt(
-                    Math.pow(intersections[i].x - intersections[j].x, 2) +
-                    Math.pow(intersections[i].y - intersections[j].y, 2)
-                );
-                if (dist > maxDistance) {
-                    maxDistance = dist;
-                    x1 = intersections[i].x;
-                    y1 = intersections[i].y;
-                    x2 = intersections[j].x;
-                    y2 = intersections[j].y;
-                }
-            }
-        }
-
-        // If no valid intersections found, use the original points
-        if (intersections.length === 0) {
-            x1 = point1.px;
-            y1 = point1.py;
-            x2 = point2.px;
-            y2 = point2.py;
-        }
-
-        return (
-            <Line
-                points={[x1, y1, x2, y2]}
-                stroke="lightgray"
-                strokeWidth={1}
-                dash={[5, 5]}
-            />
-        );
     }
 
     // Get the defined line (perpendicular line)
     const definedLine = shape.getDefinedLine();
-    if (!definedLine) return null;
+    if (definedLine == null) {
+        return null;
+    }
 
     // Convert the defined line to physical coordinates
     const ppPoint = getPhysicalCoords(definedLine.point);
@@ -985,7 +898,7 @@ export function CanvasPpToLine({ shape, getPhysicalCoords }: { shape: PpToLineSh
                 <Text
                     x={x + 10}
                     y={ppPoint.py - 20}
-                    text={shape.dbObject.name}
+                    text={shape.name}
                     fontSize={16}
                     fill={color}
                 />
@@ -1089,7 +1002,7 @@ export function CanvasPpToLine({ shape, getPhysicalCoords }: { shape: PpToLineSh
             <Text
                 x={ppPoint.px + 10}
                 y={ppPoint.py - 20}
-                text={shape.dbObject.name}
+                text={shape.name}
                 fontSize={16}
                 fill={color}
             />
@@ -1098,102 +1011,20 @@ export function CanvasPpToLine({ shape, getPhysicalCoords }: { shape: PpToLineSh
 }
 
 export function CanvasPlToLine({ shape, getPhysicalCoords }: { shape: PlToLineShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length === 0) return null;
-
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
     const isHinted = shape.state === ShapeState.Hinted;
 
     // Early return for hinted state - only show dotted line
     if (isHinted) {
-        if (shape.points.length < 2) return null;
-
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-
-        // Get the two points
-        const point1 = getPhysicalCoords(shape.points[0]);
-        const point2 = getPhysicalCoords(shape.points[1]);
-
-        // Calculate line direction
-        const dx = point2.px - point1.px;
-        const dy = point2.py - point1.py;
-        const length = Math.sqrt(dx * dx + dy * dy);
-
-        if (length === 0) return null; // Avoid division by zero
-
-        // Calculate line equation: y = mx + b
-        const m = dy / dx;
-        const b = point1.py - m * point1.px;
-
-        // Find intersection points with canvas boundaries
-        const intersections = [];
-
-        // Left boundary (x = 0)
-        const leftY = b;
-        if (leftY >= 0 && leftY <= height) {
-            intersections.push({ x: 0, y: leftY });
-        }
-
-        // Right boundary (x = width)
-        const rightY = m * width + b;
-        if (rightY >= 0 && rightY <= height) {
-            intersections.push({ x: width, y: rightY });
-        }
-
-        // Top boundary (y = 0)
-        const topX = -b / m;
-        if (topX >= 0 && topX <= width) {
-            intersections.push({ x: topX, y: 0 });
-        }
-
-        // Bottom boundary (y = height)
-        const bottomX = (height - b) / m;
-        if (bottomX >= 0 && bottomX <= width) {
-            intersections.push({ x: bottomX, y: height });
-        }
-
-        // Find the two points that give the longest line segment
-        let maxDistance = 0;
-        let x1 = point1.px, y1 = point1.py, x2 = point2.px, y2 = point2.py;
-
-        for (let i = 0; i < intersections.length; i++) {
-            for (let j = i + 1; j < intersections.length; j++) {
-                const dist = Math.sqrt(
-                    Math.pow(intersections[i].x - intersections[j].x, 2) +
-                    Math.pow(intersections[i].y - intersections[j].y, 2)
-                );
-                if (dist > maxDistance) {
-                    maxDistance = dist;
-                    x1 = intersections[i].x;
-                    y1 = intersections[i].y;
-                    x2 = intersections[j].x;
-                    y2 = intersections[j].y;
-                }
-            }
-        }
-
-        // If no valid intersections found, use the original points
-        if (intersections.length === 0) {
-            x1 = point1.px;
-            y1 = point1.py;
-            x2 = point2.px;
-            y2 = point2.py;
-        }
-
-        return (
-            <Line
-                points={[x1, y1, x2, y2]}
-                stroke="lightgray"
-                strokeWidth={1}
-                dash={[5, 5]}
-            />
-        );
+        throw new Error("CanvasProjection should be used instead of CanvasPlToLine for Hinted state");
     }
 
     // Get the defined line (parallel line)
     const definedLine = shape.getDefinedLine();
-    if (!definedLine) return null;
+    if (definedLine == null) {
+        return null;
+    }
 
     // Convert the defined line to physical coordinates
     const plPoint = getPhysicalCoords(definedLine.point);
@@ -1234,7 +1065,7 @@ export function CanvasPlToLine({ shape, getPhysicalCoords }: { shape: PlToLineSh
                 <Text
                     x={x + 10}
                     y={plPoint.py - 20}
-                    text={shape.dbObject.name}
+                    text={shape.name}
                     fontSize={16}
                     fill={color}
                 />
@@ -1323,7 +1154,7 @@ export function CanvasPlToLine({ shape, getPhysicalCoords }: { shape: PlToLineSh
             <Text
                 x={plPoint.px + 10}
                 y={plPoint.py - 20}
-                text={shape.dbObject.name}
+                text={shape.name}
                 fontSize={16}
                 fill={color}
             />
@@ -1332,9 +1163,7 @@ export function CanvasPlToLine({ shape, getPhysicalCoords }: { shape: PlToLineSh
 }
 
 export function CanvasLocus({ shape, getPhysicalCoords }: { shape: LocusShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    const coords = shape.points[0];
-    if (!coords) return null;
-    const { px, py } = getPhysicalCoords(coords);
+    const { px, py } = getPhysicalCoords(shape.point);
 
     // Use locus ordinal for color selection
     const ordinal = shape.locusOrdinal;
@@ -1344,10 +1173,8 @@ export function CanvasLocus({ shape, getPhysicalCoords }: { shape: LocusShape; g
 }
 
 
-export function CanvasIntersectionPoint({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    const coords = shape.points[0];
-    if (!coords) return null;
-    const { px, py } = getPhysicalCoords(coords);
+export function CanvasIntersectionPoint({ shape, getPhysicalCoords }: { shape: IntersectionPointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const { px, py } = getPhysicalCoords(shape.point);
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
     const isHinted = shape.state === ShapeState.Hinted;
@@ -1381,21 +1208,19 @@ export function CanvasIntersectionPoint({ shape, getPhysicalCoords }: { shape: S
                     />
                 </>
             )}
-            <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={px + 10} y={py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
 export function CanvasSlidingPoint({ shape, getPhysicalCoords }: { shape: SlidingPointShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    const coords = shape.points[0];
-    if (!coords) return null;
-    const { px, py } = getPhysicalCoords(coords);
+    const { px, py } = getPhysicalCoords(shape.gridPoint);
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
     const isHinted = shape.state === ShapeState.Hinted;
 
     // Get the line direction from the shape
-    const lineDirection = shape.lineDirection || { x: 1, y: 0 };
+    const lineDirection = { x: shape.line.n.y, y: -shape.line.n.x };
 
     // Calculate the angle of the line direction
     const angle = Math.atan2(-lineDirection.y, lineDirection.x);
@@ -1467,16 +1292,14 @@ export function CanvasSlidingPoint({ shape, getPhysicalCoords }: { shape: Slidin
             )}
 
             {/* Label */}
-            <Text x={px + 10} y={py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={px + 10} y={py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasTwoPointDistanceInvariant({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 2) return null;
-
-    const point1 = getPhysicalCoords(shape.points[0]);
-    const point2 = getPhysicalCoords(shape.points[1]);
+export function CanvasTwoPointDistanceInvariant({ shape, getPhysicalCoords }: { shape: TwoPointDistanceInvariantShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const point1 = getPhysicalCoords(shape.point1);
+    const point2 = getPhysicalCoords(shape.point2);
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
 
@@ -1590,18 +1413,16 @@ export function CanvasTwoPointDistanceInvariant({ shape, getPhysicalCoords }: { 
     );
 }
 
-export function CanvasPointToLineDistanceInvariant({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 1) return null;
-
-    const point1 = getPhysicalCoords(shape.points[0]);
+export function CanvasPointToLineDistanceInvariant({ shape, getPhysicalCoords }: { shape: PointToLineDistanceInvariantShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const point1 = getPhysicalCoords(shape.point);
     const color = getColor(shape);
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
 
     // Use gray color for Default or Suggested state
     const lineColor = (shape.state === ShapeState.Default || shape.state === ShapeState.Suggested) ? 'gray' : color;
 
-    // If there's no second point, just show the first point
-    if (shape.points.length < 2) {
+    // If there's no perpendicular point, just show the first point
+    if (!shape.perpendicularPoint) {
         return (
             <>
                 {/* Glow - pink background circle */}
@@ -1619,7 +1440,7 @@ export function CanvasPointToLineDistanceInvariant({ shape, getPhysicalCoords }:
         );
     }
 
-    const point2 = getPhysicalCoords(shape.points[1]);
+    const point2 = getPhysicalCoords(shape.perpendicularPoint!);
 
     // Calculate line direction and perpendicular direction
     const dx = point2.px - point1.px;
@@ -1717,20 +1538,16 @@ export function CanvasPointToLineDistanceInvariant({ shape, getPhysicalCoords }:
 }
 
 export function CanvasTwoLineAngleInvariant({ shape, getPhysicalCoords }: { shape: TwoLineAngleInvariantShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 1) return null;
-
-    const intersectionPoint = getPhysicalCoords(shape.points[0]);
+    const intersectionPoint = getPhysicalCoords(shape.point);
     let color = getColor(shape);
     if (shape.state === ShapeState.Default || shape.state === ShapeState.Suggested) {
         color = 'gray';
     }
     const isSuggested = shape.state === ShapeState.Suggested || shape.state === ShapeState.SuggestedSelected;
 
-    // Cast to access line1 and line2 properties
-    if (!shape.line1Points || !shape.line2Points) return null;
-
-    const line1Points = shape.line1Points;
-    const line2Points = shape.line2Points;
+    // Get line points from the line shapes
+    const line1Points = getTwoPointsOnLine(shape.line1);
+    const line2Points = getTwoPointsOnLine(shape.line2);
 
     // Circle parameters
     const circleRadius = 20;
@@ -1870,10 +1687,9 @@ export function CanvasTwoLineAngleInvariant({ shape, getPhysicalCoords }: { shap
     );
 }
 
-export function CanvasProjection({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 2) return null;
-    const p0 = getPhysicalCoords(shape.points[0]);
-    const p1 = getPhysicalCoords(shape.points[1]);
+export function CanvasProjection({ shape, getPhysicalCoords }: { shape: ProjectionShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const p0 = getPhysicalCoords(shape.point1);
+    const p1 = getPhysicalCoords(shape.point2);
 
     if (shape.state === ShapeState.Hinted) {
         // Only draw a dotted line from p0 to p1
@@ -1952,15 +1768,14 @@ export function CanvasProjection({ shape, getPhysicalCoords }: { shape: Shape; g
                 strokeWidth={1}
             />
             {/* Label */}
-            <Text x={p1.px + 10} y={p1.py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={p1.px + 10} y={p1.py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }
 
-export function CanvasReflection({ shape, getPhysicalCoords }: { shape: Shape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
-    if (shape.points.length < 2) return null;
-    const p0 = getPhysicalCoords(shape.points[0]);
-    const p1 = getPhysicalCoords(shape.points[1]);
+export function CanvasReflection({ shape, getPhysicalCoords }: { shape: ReflectionShape; getPhysicalCoords: (coords: Vector2d) => { px: number; py: number } }): React.ReactElement | null {
+    const p0 = getPhysicalCoords(shape.point1);
+    const p1 = getPhysicalCoords(shape.point2);
 
     if (shape.state === ShapeState.Hinted) {
         // Only draw a dotted line from p0 to p1
@@ -2043,7 +1858,7 @@ export function CanvasReflection({ shape, getPhysicalCoords }: { shape: Shape; g
                 strokeWidth={1}
             />
             {/* Label */}
-            <Text x={p1.px + 10} y={p1.py - 25} text={shape.dbObject.name} fontSize={16} fill={color} />
+            <Text x={p1.px + 10} y={p1.py - 25} text={shape.name} fontSize={16} fill={color} />
         </>
     );
 }

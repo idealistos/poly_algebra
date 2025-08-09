@@ -1,20 +1,21 @@
-import type { Shape, PartialDBObject } from '../types';
-import { ActionType } from '../enums';
+import type { ArgumentValue, ObjectProperties, Shape, ShapeCreatorInput } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
-import { BaseShape } from './BaseShape';
+import { BaseShape, BaseShapeCreator } from './BaseShape';
 
 export class ParameterShape extends BaseShape {
-    constructor(dbObject: PartialDBObject) {
-        super(dbObject);
-        this.points = [];
+    objectType: ObjectType = ObjectType.Parameter;
+
+    constructor(name: string, description: string) {
+        super(name, description);
     }
 
     getActionType(): ActionType | null {
         return ActionType.Parameter;
     }
 
-    getDescription(): string {
-        return this.dbObject.name;
+    getCoveredPoints(): { x: number; y: number }[] {
+        return [];
     }
 
     getCanvasShape(): React.ReactNode {
@@ -23,6 +24,29 @@ export class ParameterShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        return new ParameterShape(this.dbObject);
+        return new ParameterShape(this.name, this.description);
     }
-} 
+}
+
+export class ParameterShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.Parameter;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    getDBObjectProperties(_input: ShapeCreatorInput): ObjectProperties {
+        return {};
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    getArgumentValues(_properties: ObjectProperties, _shapes: Shape[]): ArgumentValue[] {
+        return [];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        return new ParameterShape(input.objectName, this.getDescription(input));
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    protected getDescriptionInner(input: ShapeCreatorInput, _argumentStringValues: string[]): string {
+        return input.objectName;
+    }
+}

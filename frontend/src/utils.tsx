@@ -1,28 +1,28 @@
-import { ObjectType } from "./enums";
-import { FixedPointShape } from "./shapes/FixedPointShape";
-import { FreePointShape } from "./shapes/FreePointShape";
-import { InitialPointShape } from "./shapes/InitialPointShape";
-import { InvariantShape } from "./shapes/InvariantShape";
-import { LineABShape } from "./shapes/LineABShape";
-import { LocusShape } from "./shapes/LocusShape";
-import { MidpointShape } from "./shapes/MidpointShape";
-import { IntersectionPointShape } from "./shapes/IntersectionPointShape";
-import { SlidingPointShape } from "./shapes/SlidingPointShape";
-import { ParameterShape } from "./shapes/ParameterShape";
-import { TwoPointDistanceInvariantShape } from "./shapes/TwoPointDistanceInvariantShape";
-import { PointToLineDistanceInvariantShape } from "./shapes/PointToLineDistanceInvariantShape";
-import type { Action, ObjectProperties, PartialDBObject, Shape } from "./types";
+import { ArgumentType, MOBILE_POINT_OBJECT_TYPES, ObjectType } from "./enums";
+import { FixedPointShapeCreator } from "./shapes/FixedPointShape";
+import { FreePointShapeCreator } from "./shapes/FreePointShape";
+import { LineABShapeCreator } from "./shapes/LineABShape";
+import { LocusShapeCreator } from "./shapes/LocusShape";
+import { MidpointShapeCreator } from "./shapes/MidpointShape";
+import { SlidingPointShapeCreator } from "./shapes/SlidingPointShape";
+import { ParameterShapeCreator } from "./shapes/ParameterShape";
+import { TwoPointDistanceInvariantShapeCreator } from "./shapes/TwoPointDistanceInvariantShape";
+import type { Line, Shape, ShapeCreator, ShapeCreatorInput } from "./types";
 import type { Vector2d } from 'konva/lib/types';
 import Color from "color";
-import { TwoLineAngleInvariantShape } from "./shapes/TwoLineAngleInvariantShape";
-import { PpBisectorShape } from "./shapes/PpBisectorShape";
-import type { LineBasedShape } from "./shapes/LineBasedShape";
-import { PpToLineShape } from "./shapes/PpToLineShape";
-import { ReflectionShape } from "./shapes/ReflectionShape";
-import { ProjectionShape } from "./shapes/ProjectionShape";
-import { PlToLineShape } from "./shapes/PlToLineShape";
-import { ComputedPointShape } from './shapes/ComputedPointShape';
-import { ScaledVectorPointShape } from "./shapes/ScaledVectorPointShape";
+import { LineBasedShape } from "./shapes/LineBasedShape";
+import { ReflectionShapeCreator } from "./shapes/ReflectionShape";
+import { ProjectionShapeCreator } from "./shapes/ProjectionShape";
+import { ComputedPointShapeCreator } from './shapes/ComputedPointShape';
+import { BaseShape } from "./shapes/BaseShape";
+import { InvariantShapeCreator } from "./shapes/InvariantShape";
+import { PpBisectorShapeCreator } from "./shapes/PpBisectorShape";
+import { PpToLineShapeCreator } from "./shapes/PpToLineShape";
+import { PlToLineShapeCreator } from "./shapes/PlToLineShape";
+import { PointToLineDistanceInvariantShapeCreator } from "./shapes/PointToLineDistanceInvariantShape";
+import { IntersectionPointShapeCreator } from "./shapes/IntersectionPointShape";
+import { ScaledVectorPointShapeCreator } from "./shapes/ScaledVectorPointShape";
+import { TwoLineAngleInvariantShapeCreator } from "./shapes/TwoLineAngleInvariantShape";
 
 // Plot colors for locus objects (10 colors for different locus ordinals)
 export const PLOT_COLORS = [
@@ -60,19 +60,6 @@ export function transformPlotColor(redColor: { r: number; g: number; b: number }
     };
 }
 
-export function getPointDescription(point: string | null): string {
-    if (point === null) {
-        return "?";
-    }
-    if (point.includes(",")) {
-        return `(${point})`;
-    }
-    return point;
-}
-
-export function getActionTitle(action: Action): string {
-    return action.description.split(":")[0];
-}
 
 export function distanceToLineSegment(point: Vector2d, segmentStart: Vector2d, segmentEnd: Vector2d): number {
     // Calculate the distance from point to line segment
@@ -105,152 +92,7 @@ export function distanceToLineSegment(point: Vector2d, segmentStart: Vector2d, s
     );
 }
 
-export function createShapeForDBObject(dbObject: PartialDBObject, shapes: Shape[], currentActionStep?: number): Shape {
-    switch (dbObject.object_type) {
-        case ObjectType.FixedPoint:
-            return new FixedPointShape(dbObject);
-        case ObjectType.FreePoint:
-            return new FreePointShape(dbObject);
-        case ObjectType.Midpoint:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new MidpointShape(dbObject, shapes);
-            }
-        case ObjectType.IntersectionPoint:
-            return new IntersectionPointShape(dbObject, shapes);
-        case ObjectType.SlidingPoint:
-            return new SlidingPointShape(dbObject, shapes);
-        case ObjectType.Projection:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new ProjectionShape(dbObject, shapes);
-            }
-        case ObjectType.Reflection:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new ReflectionShape(dbObject, shapes);
-            }
-        case ObjectType.ScaledVectorPoint:
-            if (currentActionStep === 1) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new ScaledVectorPointShape(dbObject, shapes);
-            }
-        case ObjectType.ComputedPoint:
-            return new ComputedPointShape(dbObject);
-        case ObjectType.LineAB:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new LineABShape(dbObject, shapes);
-            }
-        case ObjectType.PpBisector:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new PpBisectorShape(dbObject, shapes);
-            }
-        case ObjectType.PpToLine:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new PpToLineShape(dbObject, shapes);
-            }
-        case ObjectType.PlToLine:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new PlToLineShape(dbObject, shapes);
-            }
-        case ObjectType.Parameter:
-            return new ParameterShape(dbObject);
-        case ObjectType.Invariant:
-            return new InvariantShape(dbObject);
-        case ObjectType.Locus:
-            return new LocusShape(dbObject, shapes);
-        case ObjectType.TwoPointDistanceInvariant:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new TwoPointDistanceInvariantShape(dbObject, shapes);
-            }
-        case ObjectType.PointToLineDistanceInvariant:
-            if (currentActionStep === 0) {
-                return new InitialPointShape(dbObject, shapes);
-            } else {
-                return new PointToLineDistanceInvariantShape(dbObject, shapes);
-            }
-        case ObjectType.TwoLineAngleInvariant:
-            if (dbObject.properties && "line1" in dbObject.properties && "line2" in dbObject.properties) {
-                return new TwoLineAngleInvariantShape(dbObject, shapes);
-            } else {
-                return new InitialPointShape(dbObject, shapes);
-            }
-        default:
-            {
-                const exhaustiveCheck: never = dbObject.object_type;
-                throw new Error(`Unhandled object type: ${exhaustiveCheck}`);
-            }
-    }
-}
 
-export function getDBObjectForExpressions(name: string, expressions: string[], action: Action): PartialDBObject {
-    const objectType = action.object_types[0];
-    switch (objectType) {
-        case ObjectType.ScaledVectorPoint:
-            return {
-                name,
-                object_type: ObjectType.ScaledVectorPoint,
-                properties: { k: expressions[0] },
-            };
-        case ObjectType.ComputedPoint:
-            return {
-                name,
-                object_type: ObjectType.ComputedPoint,
-                properties: { x_expr: expressions[0], y_expr: expressions[1] },
-            };
-        case ObjectType.Invariant:
-            return {
-                name,
-                object_type: ObjectType.Invariant,
-                properties: { formula: expressions[0] },
-            };
-        default:
-            throw new Error(`Object type isn't defined with expressions: ${objectType}`);
-    }
-}
-
-export function getDBPropertiesForLine(shape: LineBasedShape, objectType: ObjectType, actionStep: number): Partial<ObjectProperties> {
-    switch (objectType) {
-        case ObjectType.PpToLine:
-        case ObjectType.PlToLine:
-        case ObjectType.PointToLineDistanceInvariant:
-        case ObjectType.Projection:
-        case ObjectType.Reflection:
-        case ObjectType.ComputedPoint:
-            return {
-                line: shape.dbObject.name,
-            };
-        case ObjectType.TwoLineAngleInvariant:
-            if (actionStep === 0) {
-                return { line1: shape.dbObject.name };
-            } else {
-                return { line2: shape.dbObject.name };
-            }
-        default:
-            throw new Error(`Unhandled object type: ${objectType}`);
-    }
-}
-
-export function checkLineAlreadyChosen(dbObject: PartialDBObject, shape: LineBasedShape): boolean {
-    if (dbObject.object_type === ObjectType.TwoLineAngleInvariant) {
-        return dbObject.properties != null && "line1" in dbObject.properties && dbObject.properties.line1 === shape.dbObject.name;
-    }
-    return false;
-}
 
 export function parsePoint(pointValue: string, shapes: Shape[]): { x: number; y: number } | null {
     // Check if it's a coordinate string like "x,y"
@@ -263,10 +105,250 @@ export function parsePoint(pointValue: string, shapes: Shape[]): { x: number; y:
     }
 
     // Otherwise, look up the object by name in shapes
-    const shape = shapes.find(s => s.dbObject.name === pointValue);
-    if (shape && shape.points.length > 0) {
+    const shape = shapes.find(s => s.name === pointValue);
+    if (shape && shape.getCoveredPoints().length > 0) {
         return shape.getDefinedPoint()!;
     }
 
     return null;
+}
+
+export function getDefinedOrGridPoint(pointValue: string, shapes: Shape[]): Shape | Vector2d | null {
+    // Check if it's a coordinate string like "x,y"
+    const coordMatch = pointValue.match(/^(-?\d+),\s*(-?\d+)$/);
+    if (coordMatch) {
+        return {
+            x: parseInt(coordMatch[1]),
+            y: parseInt(coordMatch[2])
+        };
+    }
+
+    // Otherwise, look up the object by name in shapes
+    return shapes.find(s => s.name === pointValue) ?? null;
+}
+
+export function getPointsFromInput(input: ShapeCreatorInput): Vector2d[] {
+    const points = [];
+    const firstIndex = input.validatedExpressions.length;
+    for (const [index, arg] of input.argumentValues.entries()) {
+        if (index < firstIndex) {
+            continue;
+        }
+        if (arg == null) {
+            break;
+        }
+        if (arg[0] instanceof BaseShape) {
+            const definedPoint = arg[0].getDefinedPoint();
+            if (definedPoint != null) {
+                points.push(definedPoint);
+            }
+        } else {
+            points.push(arg[0] as Vector2d);
+        }
+    }
+    if (input.hintedObjectPoint != null) {
+        points.push(input.hintedObjectPoint);
+    }
+    return points;
+}
+
+export function getGridOrHintedPointFromInput(input: ShapeCreatorInput): Vector2d | null {
+    if (input.argumentValues[0] == null && input.hintedObjectPoint != null) {
+        return input.hintedObjectPoint!;
+    } else if (input.argumentValues[0] != null && !(input.argumentValues[0][0] instanceof BaseShape)) {
+        return input.argumentValues[0][0] as Vector2d;
+    } else {
+        return null;
+    }
+}
+
+export function getShapeNameOrPoint(argumentValue: Vector2d | Shape | null): string {
+    if (argumentValue == null) {
+        throw new Error("Argument value is null");
+    }
+    if (argumentValue instanceof BaseShape) {
+        return argumentValue.name;
+    } else {
+        const point = argumentValue as Vector2d;
+        return `${point.x},${point.y}`;
+    }
+}
+
+export function getTwoClosestLines(
+    shapes: Shape[],
+    logicalPoint: Vector2d
+): { shape: LineBasedShape; distance: number }[] | null {
+    const lineShapes = shapes.filter(shape => shape instanceof LineBasedShape) as LineBasedShape[];
+
+    if (lineShapes.length < 2) {
+        return null;
+    }
+
+    // Calculate distances to all lines using the distanceToPoint method
+    const linesWithDistances = lineShapes.map(line => ({
+        shape: line,
+        distance: line.distanceToPoint(logicalPoint)
+    }));
+
+    // Sort by distance and return the two closest
+    linesWithDistances.sort((a, b) => a.distance - b.distance);
+
+    return linesWithDistances.slice(0, 2);
+}
+
+export function getClosestLine(
+    shapes: Shape[],
+    logicalPoint: Vector2d
+): { shape: LineBasedShape; distance: number } | null {
+    const lineShapes = shapes.filter(shape => shape instanceof LineBasedShape) as LineBasedShape[];
+
+    if (lineShapes.length === 0) {
+        console.log("No lines found");
+        return null;
+    }
+
+    // Calculate distances to all lines using the distanceToPoint method
+    const linesWithDistances = lineShapes.map(line => ({
+        shape: line,
+        distance: line.distanceToPoint(logicalPoint)
+    }));
+    console.log(linesWithDistances);
+
+    // Sort by distance and return the closest
+    linesWithDistances.sort((a, b) => a.distance - b.distance);
+
+    return linesWithDistances[0];
+}
+
+export function getClosestDefinedPoint(
+    objectTypes: ObjectType[],
+    shapes: Shape[],
+    logicalPoint: Vector2d,
+    isOccupied: (point: Vector2d) => boolean
+): { shape: Shape | null; minDist: number } {
+    let minDist = Infinity;
+    let closest: Shape | null = null;
+    for (const shape of shapes) {
+        if (objectTypes.includes(shape.objectType!)) {
+            const definedPoint = shape.getDefinedPoint();
+            if (definedPoint) {
+                const dist = Math.sqrt(
+                    Math.pow(logicalPoint.x - definedPoint.x, 2) + Math.pow(logicalPoint.y - definedPoint.y, 2)
+                );
+                if (dist < minDist && !isOccupied(definedPoint)) {
+                    minDist = dist;
+                    closest = shape;
+                }
+            }
+        }
+    }
+    return { shape: closest, minDist };
+}
+
+export function intersectLines(line1: Line, line2: Line): Vector2d | null {
+    // Solve the system of equations:
+    // n1 · (p - point1) = 0
+    // n2 · (p - point2) = 0
+
+    // This gives us:
+    // n1x * (px - point1x) + n1y * (py - point1y) = 0
+    // n2x * (px - point2x) + n2y * (py - point2y) = 0
+
+    // Rearranging:
+    // n1x * px + n1y * py = n1x * point1x + n1y * point1y
+    // n2x * px + n2y * py = n2x * point2x + n2y * point2y
+
+    const a11 = line1.n.x;
+    const a12 = line1.n.y;
+    const a21 = line2.n.x;
+    const a22 = line2.n.y;
+
+    const b1 = line1.n.x * line1.point.x + line1.n.y * line1.point.y;
+    const b2 = line2.n.x * line2.point.x + line2.n.y * line2.point.y;
+
+    // Calculate determinant
+    const det = a11 * a22 - a12 * a21;
+
+    if (Math.abs(det) < 1e-10) {
+        // Lines are parallel
+        return null;
+    }
+
+    // Solve using Cramer's rule
+    const px = (b1 * a22 - b2 * a12) / det;
+    const py = (a11 * b2 - a21 * b1) / det;
+
+    return { x: px, y: py };
+}
+
+export function getTwoPointsOnLine(line: Line): Vector2d[] {
+    return [line.point, { x: line.point.x + line.n.y, y: line.point.y - line.n.x }];
+}
+
+export function getMatchingObjectTypes(argType: ArgumentType): ObjectType[] {
+    switch (argType) {
+        case ArgumentType.MobilePoint:
+            return MOBILE_POINT_OBJECT_TYPES;
+        case ArgumentType.AnyDefinedPoint:
+        case ArgumentType.AnyDefinedOrGridPoint:
+            return [...MOBILE_POINT_OBJECT_TYPES, ObjectType.FixedPoint];
+        case ArgumentType.IntersectionPoint:
+            return [ObjectType.LineAB, ObjectType.PpBisector];
+        case ArgumentType.SlidingPoint:
+            return [...MOBILE_POINT_OBJECT_TYPES, ObjectType.FixedPoint];
+        case ArgumentType.Line:
+            return [ObjectType.LineAB, ObjectType.PpBisector];
+        case ArgumentType.GridPoint:
+            return [];
+        default:
+            {
+                const exhaustiveCheck: never = argType;
+                throw new Error(`Unhandled argument type: ${exhaustiveCheck}`);
+            }
+    }
+}
+
+export function getShapeCreator(objectType: ObjectType): ShapeCreator {
+    switch (objectType) {
+        case ObjectType.FixedPoint:
+            return new FixedPointShapeCreator();
+        case ObjectType.FreePoint:
+            return new FreePointShapeCreator();
+        case ObjectType.Midpoint:
+            return new MidpointShapeCreator();
+        case ObjectType.Projection:
+            return new ProjectionShapeCreator();
+        case ObjectType.Reflection:
+            return new ReflectionShapeCreator();
+        case ObjectType.LineAB:
+            return new LineABShapeCreator();
+        case ObjectType.SlidingPoint:
+            return new SlidingPointShapeCreator();
+        case ObjectType.Locus:
+            return new LocusShapeCreator();
+        case ObjectType.Parameter:
+            return new ParameterShapeCreator();
+        case ObjectType.TwoPointDistanceInvariant:
+            return new TwoPointDistanceInvariantShapeCreator();
+        case ObjectType.Invariant:
+            return new InvariantShapeCreator();
+        case ObjectType.ComputedPoint:
+            return new ComputedPointShapeCreator();
+        case ObjectType.PpBisector:
+            return new PpBisectorShapeCreator();
+        case ObjectType.PpToLine:
+            return new PpToLineShapeCreator();
+        case ObjectType.PlToLine:
+            return new PlToLineShapeCreator();
+        case ObjectType.PointToLineDistanceInvariant:
+            return new PointToLineDistanceInvariantShapeCreator();
+        case ObjectType.IntersectionPoint:
+            return new IntersectionPointShapeCreator();
+        case ObjectType.ScaledVectorPoint:
+            return new ScaledVectorPointShapeCreator();
+        case ObjectType.TwoLineAngleInvariant:
+            return new TwoLineAngleInvariantShapeCreator();
+        default:
+            throw new Error(`Unhandled object type: ${objectType}`);
+    }
 }

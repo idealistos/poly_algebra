@@ -1,79 +1,36 @@
-import { BaseShape } from './BaseShape';
+import { BaseShapeCreator } from './BaseShape';
 import type { Vector2d } from 'konva/lib/types';
-import type { CanvasProperties, PartialDBObject, ScaledVectorPointProperties, Shape } from '../types';
-import { ActionType } from '../enums';
-import { parsePoint } from '../utils';
+import type { CanvasProperties, ScaledVectorPointProperties, Shape, ShapeCreatorInput, ArgumentValue, ObjectProperties, DBObject } from '../types';
+import { ActionType, ObjectType } from '../enums';
+import { getShapeNameOrPoint, getPointsFromInput, getDefinedOrGridPoint } from '../utils';
 import { CanvasScaledVectorPoint } from './CanvasComponents';
+import { PointBasedShape } from './PointBasedShape';
+import { InitialPointShape } from './InitialPointShape';
 
-export class ScaledVectorPointShape extends BaseShape {
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
+export class ScaledVectorPointShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.ScaledVectorPoint;
+    point1: Vector2d;
+    point2: Vector2d;
+    point: Vector2d;
+    kValue: number;
 
-        this.points = [];
-
-        const properties = dbObject.properties as Partial<ScaledVectorPointProperties>;
-        const point1 = properties.point1;
-        const point2 = properties.point2;
-        let point1Coords: Vector2d | null = null;
-        let point2Coords: Vector2d | null = null;
-
-        // Parse point1
-        if (point1) {
-            point1Coords = parsePoint(point1, shapes);
-            if (point1Coords) {
-                this.points.push(point1Coords);
-            }
-        }
-
-        // Parse point2
-        if (point2) {
-            point2Coords = parsePoint(point2, shapes);
-            if (point2Coords) {
-                this.points.push(point2Coords);
-            }
-        }
-        if (point1Coords && point2Coords) {
-            const kValue = properties.k_value;
-            if (kValue) {
-                this.points.push({
-                    x: point1Coords.x + kValue * (point2Coords.x - point1Coords.x),
-                    y: point1Coords.y + kValue * (point2Coords.y - point1Coords.y)
-                })
-            }
+    constructor(name: string, description: string, point1: Vector2d, point2: Vector2d, kValue: number) {
+        super(name, description);
+        this.point1 = point1;
+        this.point2 = point2;
+        this.kValue = kValue;
+        this.point = {
+            x: point1.x + kValue * (point2.x - point1.x),
+            y: point1.y + kValue * (point2.y - point1.y)
         }
     }
 
-    getActionType(): ActionType {
+    getActionType(): ActionType | null {
         return ActionType.ScaledVectorPoint;
     }
 
-    getDescription(): string {
-        const props = this.dbObject.properties as Partial<ScaledVectorPointProperties>;
-        let point1 = props.point1 ?? '?';
-        let point2 = props.point2 ?? '?';
-        const kValue = props.k_value;
-        const kValueFormatted = kValue !== undefined ? kValue.toFixed(2) : '?';
-        const parts = [`k = ${kValueFormatted}`];
-        if (point1.includes(',')) {
-            parts.push(`M = (${point1})`);
-            point1 = 'M';
-        }
-        if (point2.includes(',')) {
-            parts.push(`N = (${point2})`);
-            point2 = 'N';
-        }
-        return `${this.dbObject.name}: ${point1} + k (${point2} - ${point1}), ${parts.join(', ')}`;
-    }
-
     getDefinedPoint(): Vector2d | null {
-        return this.points[2] || null;
-    }
-
-    distanceToPoint(point: Vector2d): number {
-        if (this.points.length < 3) return Infinity;
-        return Math.sqrt(
-            Math.pow(point.x - this.points[2].x, 2) + Math.pow(point.y - this.points[2].y, 2)
-        );
+        return this.point;
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -84,26 +41,83 @@ export class ScaledVectorPointShape extends BaseShape {
         return <CanvasScaledVectorPoint key={key} shape={this} getPhysicalCoords={getPhysicalCoords} />;
     }
 
-    updatePoints(step: number, point: Vector2d): void {
-        if (step !== 2) {
-            throw new Error('ScaledVectorPointShape can only be updated at step 2');
+    protected createClone(): Shape {
+        return new ScaledVectorPointShape(this.name, this.description, this.point1, this.point2, this.kValue);
+    }
+}
+
+export class ScaledVectorPointShapeCreator extends BaseShapeCreator {
+    objectType = ObjectType.ScaledVectorPoint;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ScaledVectorPointProperties {
+        if (input.validatedExpressions[0] == null || input.expressionValues[0] == null || input.argumentValues[1]?.[0] == null || input.argumentValues[2]?.[0] == null) {
+            throw new Error('Invalid input');
         }
-        if (!this.points[0]) {
-            return;
-        }
-        console.log('updatePoints', point, this.points);
-        this.points[1] = point;
-        const kValue = (this.dbObject.properties as Partial<ScaledVectorPointProperties>).k_value ?? 0;
-        this.points[2] = {
-            x: this.points[0].x + kValue * (point.x - this.points[0].x),
-            y: this.points[0].y + kValue * (point.y - this.points[0].y)
-        }
-        console.log('updatePoints', this);
+        return {
+            k: input.validatedExpressions[0],
+            point1: getShapeNameOrPoint(input.argumentValues[1]?.[0]),
+            point2: getShapeNameOrPoint(input.argumentValues[2]?.[0]),
+            k_value: input.expressionValues[0]
+        };
     }
 
-    createClone(): ScaledVectorPointShape {
-        const copy = new ScaledVectorPointShape(this.dbObject, []);
-        copy.points = [...this.points];
-        return copy;
+    getInputForDBObject(dbObject: DBObject, shapes: Shape[]): ShapeCreatorInput {
+        const properties = dbObject.properties as ScaledVectorPointProperties;
+        return {
+            objectName: dbObject.name,
+            validatedExpressions: [properties.k],
+            expressionValues: [properties.k_value],
+            argumentValues: this.getArgumentValues(properties, shapes),
+            hintedObjectPoint: null,
+            locusOrdinal: null
+        }
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const scaledVectorPointProperties = properties as ScaledVectorPointProperties;
+        const point1 = getDefinedOrGridPoint(scaledVectorPointProperties.point1, shapes);
+        const point2 = getDefinedOrGridPoint(scaledVectorPointProperties.point2, shapes);
+        if (point1 == null || point2 == null) {
+            throw new Error('Invalid point1 or point2 value');
+        }
+        return [[], [point1], [point2]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        if (points.length == 0) {
+            return null;
+        } else if (points.length == 1) {
+            return new InitialPointShape(input.objectName, points[0]);
+        }
+
+        const point1 = points[0];
+        const point2 = points[1];
+        const kValue = input.expressionValues[0] ?? 0;
+
+        return new ScaledVectorPointShape(
+            input.objectName,
+            this.getDescription(input),
+            point1,
+            point2,
+            kValue,
+        );
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        const kValue = input.expressionValues[0] ?? 0;
+        const kValueFormatted = kValue.toFixed(2);
+        let point1 = argumentStringValues[1];
+        let point2 = argumentStringValues[2];
+        const parts = [`k = ${kValueFormatted}`];
+        if (point1.includes(',')) {
+            parts.push(`M = ${point1}`);
+            point1 = 'M';
+        }
+        if (point2.includes(',')) {
+            parts.push(`N = ${point2}`);
+            point2 = 'N';
+        }
+        return `${input.objectName}: ${point1} + k (${point2} - ${point1}), ${parts.join(', ')}`;
     }
 } 

@@ -26,9 +26,9 @@ function Legend({ displayedPlotNames, plotDataByLocusName, shapes }: LegendProps
     // Helper function to get locus ordinal number
     const getLocusOrdinal = (locusName: string) => {
         const locusShapes = shapes.filter(shape =>
-            shape.dbObject.object_type === ObjectType.Locus
+            shape.objectType === ObjectType.Locus
         );
-        return locusShapes.findIndex(shape => shape.dbObject.name === locusName) % 10;
+        return locusShapes.findIndex(shape => shape.name === locusName) % 10;
     };
 
     return (

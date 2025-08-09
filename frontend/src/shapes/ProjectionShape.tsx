@@ -1,69 +1,40 @@
-import { LineBasedShape } from './LineBasedShape';
-import type { PartialDBObject, Shape, Line, ProjectionProperties, CanvasProperties } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, Line, ProjectionProperties, CanvasProperties, ObjectProperties, ShapeCreatorInput, ArgumentValue } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
-import { BaseShape } from './BaseShape';
-import { getPointDescription, parsePoint } from '../utils';
+import { BaseShapeCreator } from './BaseShape';
+import { getShapeNameOrPoint, getDefinedOrGridPoint, getPointsFromInput } from '../utils';
 import type { Vector2d } from 'konva/lib/types';
 import { CanvasProjection } from './CanvasComponents';
+import { LineBasedShape } from './LineBasedShape';
+import { InitialPointShape } from './InitialPointShape';
+import { PointBasedShape } from './PointBasedShape';
 
-export class ProjectionShape extends BaseShape {
+export class ProjectionShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.Projection;
+    point1: Vector2d;
+    point2: Vector2d;
+    line: Line | null;
 
-    private line: Line | null = null;
-
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        this.points = [];
-
-        const properties = dbObject.properties as Partial<ProjectionProperties>;
-        const point = properties.point;
-        const line = properties.line;
-
-        const pointCoords = point ? parsePoint(point, shapes) : null;
-        if (pointCoords == null) {
-            return;
-        }
-        this.points = [pointCoords];
-
-        if (line == null) {
-            return;
-        }
-
-        // Find lineShape via "shapes"
-        const lineShape = shapes.find(shape => shape.dbObject.name === line);
-        if (lineShape) {
-
-            // Set this.normal to lineShape.getDefinedLine().n rotated by 90 degrees
-            this.line = (lineShape as LineBasedShape).getDefinedLine();
-            if (!this.line) {
-                throw new Error(`Line definition not found for: ${line}`);
+    constructor(name: string, description: string, point1: Vector2d, point2: Vector2d | null, line: Line | null) {
+        super(name, description);
+        this.point1 = point1;
+        if (point2 == null) {
+            if (line == null) {
+                throw new Error("Both point2 and line are null");
             }
-
-            // Find the point on lineShape closest to the one represented by dbObject.properties.point
-            const projectedPoint = this.findProjectedPoint(pointCoords, this.line);
-            this.points.push(projectedPoint);
+            this.point2 = this.findProjectedPoint(point1, line);
+        } else {
+            this.point2 = point2;
         }
+        this.line = line;
     }
 
     getActionType(): ActionType {
         return ActionType.Projection;
     }
 
-    getDescription(): string {
-        const properties = this.dbObject.properties as Partial<ProjectionProperties>;
-        const point = getPointDescription(properties.point ?? null);
-        return `${this.dbObject.name}: proj(${point}, ${properties.line || '???'})`;
-    }
-
     getDefinedPoint(): Vector2d | null {
-        return this.points[1] || null;
-    }
-
-    distanceToPoint(point: Vector2d): number {
-        if (this.points.length === 0) return Infinity;
-        return Math.sqrt(
-            Math.pow(point.x - this.points[1].x, 2) + Math.pow(point.y - this.points[1].y, 2)
-        );
+        return this.point2;
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -75,10 +46,7 @@ export class ProjectionShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        const clone = new ProjectionShape(this.dbObject, []);
-        clone.points = this.points.map(point => ({ ...point }));
-        clone.line = this.line;
-        return clone;
+        return new ProjectionShape(this.name, this.description, this.point1, this.point2, this.line);
     }
 
     private findProjectedPoint(point: Vector2d, line: Line): Vector2d {
@@ -104,5 +72,46 @@ export class ProjectionShape extends BaseShape {
         const projectedY = point.y - scale * line.n.y;
 
         return { x: projectedX, y: projectedY };
+    }
+}
+
+export class ProjectionShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.Projection;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ObjectProperties {
+        return {
+            point: getShapeNameOrPoint(input.argumentValues[0]?.[0]),
+            line: (input.argumentValues[1]?.[0] as Shape).name,
+        };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const projectionProperties = properties as ProjectionProperties;
+        const point = getDefinedOrGridPoint(projectionProperties.point, shapes);
+        const line = shapes.find(shape => shape.name === projectionProperties.line);
+        if (point == null || line == null) {
+            throw new Error('Invalid point or line value');
+        }
+        return [[point], [line]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        const line = (input.argumentValues[1]?.[0] instanceof LineBasedShape) ?
+            (input.argumentValues[1]?.[0] as LineBasedShape).getDefinedLine() : null;
+        if (points.length == 0) {
+            return null;
+        } else if (points.length == 1) {
+            if (line == null) {
+                return new InitialPointShape(input.objectName, points[0]);
+            }
+            return new ProjectionShape(input.objectName, this.getDescription(input), points[0], null, line);
+        } else {
+            return new ProjectionShape(input.objectName, this.getDescription(input), points[0], points[1], null);
+        }
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        return `${input.objectName}: proj(${argumentStringValues[0]}, ${argumentStringValues[1]})`;
     }
 } 

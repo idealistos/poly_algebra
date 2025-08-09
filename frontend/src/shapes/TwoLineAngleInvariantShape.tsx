@@ -1,75 +1,40 @@
-import type { Shape, PartialDBObject, TwoLineAngleInvariantProperties } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, TwoLineAngleInvariantProperties, ShapeCreatorInput, ArgumentValue, ObjectProperties, Line } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
-import { BaseShape } from './BaseShape';
+import { PointBasedShape } from './PointBasedShape';
 import { CanvasTwoLineAngleInvariant } from './CanvasComponents';
-import { LineABShape } from './LineABShape';
+import { LineBasedShape } from './LineBasedShape';
+import { BaseShapeCreator } from './BaseShape';
+import { getShapeNameOrPoint, getPointsFromInput, intersectLines } from '../utils';
+import { InitialPointShape } from './InitialPointShape';
 
-export class TwoLineAngleInvariantShape extends BaseShape {
-    line1Points: Vector2d[];
-    line2Points: Vector2d[];
+export class TwoLineAngleInvariantShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.TwoLineAngleInvariant;
+    point: Vector2d;
+    line1: Line;
+    line2: Line;
 
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        console.log('Called with', dbObject, shapes);
-        this.points = [];
-        this.line1Points = [];
-        this.line2Points = [];
-        if (dbObject.properties == null) {
-            return;
-        }
-
-        const properties = dbObject.properties as Partial<TwoLineAngleInvariantProperties>;
-        const line1Name = properties.line1;
-        const line2Name = properties.line2;
-
-        // Handle null line names - keep points empty
-        if (!line1Name || !line2Name) {
-            return;
-        }
-
-        // Look up the shapes by name
-        const line1Shape = shapes.find(s => s.dbObject.name === line1Name);
-        const line2Shape = shapes.find(s => s.dbObject.name === line2Name);
-
-        // Assert that shapes exist and are LineABShape
-        if (!line1Shape || !line2Shape) {
-            throw new Error(`TwoLineAngleInvariant ${dbObject.name}: Could not find shapes ${line1Name} and/or ${line2Name}`);
-        }
-
-        if (!(line1Shape instanceof LineABShape) || !(line2Shape instanceof LineABShape)) {
-            throw new Error(`TwoLineAngleInvariant ${dbObject.name}: Shapes ${line1Name} and ${line2Name} must be LineAB shapes`);
-        }
+    constructor(name: string, description: string, line1: Line, line2: Line) {
+        super(name, description);
+        this.line1 = line1;
+        this.line2 = line2;
 
         // Calculate intersection point
-        const intersectionPoint = line1Shape.intersect(line2Shape);
+        const intersectionPoint = intersectLines(line1, line2);
         if (intersectionPoint === null) {
-            throw new Error(`TwoLineAngleInvariant ${dbObject.name}: Lines ${line1Name} and ${line2Name} are parallel and do not intersect`);
+            throw new Error(`Lines are parallel and do not intersect`);
         }
-
-        // Add the intersection point to points array
-        this.points.push(intersectionPoint);
-        this.line1Points = [...line1Shape.points];
-        this.line2Points = [...line2Shape.points];
+        this.point = intersectionPoint;
     }
 
     getActionType(): ActionType | null {
         return ActionType.AngleInvariant;
     }
 
-    getDescription(): string {
-        const properties = this.dbObject.properties as Partial<TwoLineAngleInvariantProperties>;
-        const line1 = properties.line1 ?? 'undefined';
-        const line2 = properties.line2 ?? 'undefined';
-        return `α(${line1}, ${line2}) = const`;
-    }
-
-    distanceToPoint(point: Vector2d): number {
-        return Math.sqrt(
-            Math.pow(point.x - this.points[0].x, 2) + Math.pow(point.y - this.points[0].y, 2)
-        );
+    getDefinedPoint(): Vector2d | null {
+        return this.point;
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -81,11 +46,55 @@ export class TwoLineAngleInvariantShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        const copy = new TwoLineAngleInvariantShape({ ...this.dbObject, properties: null }, []);
-        copy.points = this.points;
-        copy.line1Points = this.line1Points;
-        copy.line2Points = this.line2Points;
-        copy.dbObject.properties = this.dbObject.properties;
-        return copy;
+        return new TwoLineAngleInvariantShape(this.name, this.description, this.line1, this.line2);
+    }
+}
+
+export class TwoLineAngleInvariantShapeCreator extends BaseShapeCreator {
+    objectType = ObjectType.TwoLineAngleInvariant;
+
+    getDBObjectProperties(input: ShapeCreatorInput): TwoLineAngleInvariantProperties {
+        return {
+            line1: getShapeNameOrPoint(input.argumentValues[0]?.[0]),
+            line2: getShapeNameOrPoint(input.argumentValues[1]?.[0]),
+        };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const twoLineAngleInvariantProperties = properties as TwoLineAngleInvariantProperties;
+        const line1 = shapes.find(shape => shape.name === twoLineAngleInvariantProperties.line1) as LineBasedShape;
+        const line2 = shapes.find(shape => shape.name === twoLineAngleInvariantProperties.line2) as LineBasedShape;
+
+        if (line1 && line2) {
+            return [[line1], [line2]];
+        }
+        return [];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+
+        // Check if both argument values are LineBasedShape instances
+        const line1 = input.argumentValues[0]?.[0];
+        const line2 = input.argumentValues[1]?.[0];
+
+        if (line1 instanceof LineBasedShape && line2 instanceof LineBasedShape) {
+            return new TwoLineAngleInvariantShape(
+                input.objectName,
+                this.getDescription(input),
+                line1.getDefinedLine()!,
+                line2.getDefinedLine()!
+            );
+        } else if (points.length === 1) {
+            return new InitialPointShape(input.objectName, points[0]);
+        } else {
+            return null;
+        }
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        const line1Name = argumentStringValues[0] ?? '?';
+        const line2Name = argumentStringValues[1] ?? '?';
+        return `α(${line1Name}, ${line2Name}) = const`;
     }
 } 

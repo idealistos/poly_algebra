@@ -1,63 +1,34 @@
-import type { Shape, PartialDBObject, MidpointProperties } from '../types';
-import { ActionType } from '../enums';
+import type { Shape, MidpointProperties, ObjectProperties, ShapeCreatorInput, ArgumentValue } from '../types';
+import { ActionType, ObjectType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
-import { BaseShape } from './BaseShape';
+import { BaseShapeCreator } from './BaseShape';
 import { CanvasMidpoint } from './CanvasComponents';
-import { getPointDescription, parsePoint } from '../utils';
+import { getDefinedOrGridPoint, getPointsFromInput, getShapeNameOrPoint } from '../utils';
+import { InitialPointShape } from './InitialPointShape';
+import { PointBasedShape } from './PointBasedShape';
 
-export class MidpointShape extends BaseShape {
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        this.points = [];
+export class MidpointShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.Midpoint;
+    point1: Vector2d;
+    point2: Vector2d;
 
-        const properties = dbObject.properties as Partial<MidpointProperties>;
-        const point1 = properties.point1;
-        const point2 = properties.point2;
-
-        // Parse point1
-        if (point1) {
-            const point1Coords = parsePoint(point1, shapes);
-            if (point1Coords) {
-                this.points.push(point1Coords);
-            }
-        }
-
-        // Parse point2
-        if (point2) {
-            const point2Coords = parsePoint(point2, shapes);
-            if (point2Coords) {
-                this.points.push(point2Coords);
-            }
-        }
+    constructor(name: string, description: string, point1: Vector2d, point2: Vector2d) {
+        super(name, description);
+        this.point1 = point1;
+        this.point2 = point2;
     }
 
     getActionType(): ActionType | null {
         return ActionType.Midpoint;
     }
 
-    getDescription(): string {
-        const properties = this.dbObject.properties as Partial<MidpointProperties>;
-        const point1 = getPointDescription(properties.point1 ?? null);
-        const point2 = getPointDescription(properties.point2 ?? null);
-        return `${this.dbObject.name}: midpoint(${point1}, ${point2})`;
-    }
-
     getDefinedPoint(): Vector2d | null {
-        if (this.points.length < 2) return null;
         return {
-            x: (this.points[0].x + this.points[1].x) / 2,
-            y: (this.points[0].y + this.points[1].y) / 2
+            x: (this.point1.x + this.point2.x) / 2,
+            y: (this.point1.y + this.point2.y) / 2
         };
-    }
-
-    distanceToPoint(point: Vector2d): number {
-        const definedPoint = this.getDefinedPoint();
-        if (!definedPoint) return Infinity;
-        return Math.sqrt(
-            Math.pow(point.x - definedPoint.x, 2) + Math.pow(point.y - definedPoint.y, 2)
-        );
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -69,6 +40,42 @@ export class MidpointShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        return new MidpointShape(this.dbObject, []);
+        return new MidpointShape(this.name, this.description, this.point1, this.point2);
+    }
+}
+
+export class MidpointShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.Midpoint;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ObjectProperties {
+        return {
+            point1: getShapeNameOrPoint(input.argumentValues[0]?.[0]),
+            point2: getShapeNameOrPoint(input.argumentValues[1]?.[0]),
+        };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const midpointProperties = properties as MidpointProperties;
+        const point1 = getDefinedOrGridPoint(midpointProperties.point1, shapes);
+        const point2 = getDefinedOrGridPoint(midpointProperties.point2, shapes);
+        if (point1 == null || point2 == null) {
+            throw new Error('Invalid point1 or point2 value');
+        }
+        return [[point1], [point2]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        if (points.length == 0) {
+            return null;
+        } else if (points.length == 1) {
+            return new InitialPointShape(input.objectName, points[0]);
+        } else {
+            return new MidpointShape(input.objectName, this.getDescription(input), points[0], points[1]);
+        }
+    }
+
+    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        return `${input.objectName}: midpoint(${argumentStringValues[0]}, ${argumentStringValues[1]})`;
     }
 } 

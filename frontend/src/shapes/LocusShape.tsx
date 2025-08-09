@@ -1,48 +1,36 @@
-import type { Shape, PartialDBObject, LocusProperties } from '../types';
-import { ObjectType, ActionType, MOBILE_POINT_OBJECT_TYPES } from '../enums';
+import type { Shape, LocusProperties, ObjectProperties, ShapeCreatorInput, ArgumentValue } from '../types';
+import { ObjectType, ActionType } from '../enums';
 import React from 'react';
 import type { CanvasProperties } from '../types';
 import type { Vector2d } from 'konva/lib/types';
-import { BaseShape } from './BaseShape';
 import { CanvasLocus } from './CanvasComponents';
+import { BaseShape, BaseShapeCreator } from './BaseShape';
+import { PointBasedShape } from './PointBasedShape';
+import { getDefinedOrGridPoint, getPointsFromInput } from '../utils';
 
+export class LocusShape extends PointBasedShape {
+    objectType: ObjectType = ObjectType.Locus;
+    point: Vector2d;
+    locusOrdinal: number;
 
-export class LocusShape extends BaseShape {
-    public locusOrdinal: number;
-
-    constructor(dbObject: PartialDBObject, shapes: Shape[]) {
-        super(dbObject);
-        const point = (dbObject.properties as Partial<LocusProperties>)?.point;
-        this.points = [];
-        if (point) {
-            const locusPoint = shapes.find(s =>
-                s.dbObject.name === point &&
-                MOBILE_POINT_OBJECT_TYPES.includes(s.dbObject.object_type));
-            if (locusPoint) {
-                this.points = [locusPoint.getDefinedPoint()!];
-            }
-        }
-
-        // Calculate locus ordinal based on existing locus shapes
-        const existingLocusShapes = shapes.filter(s => s.dbObject.object_type === ObjectType.Locus);
-        const matchingShape = existingLocusShapes.find(s => s.dbObject.name === dbObject.name);
-
-        if (matchingShape) {
-            // If this shape already exists, use its index
-            this.locusOrdinal = existingLocusShapes.indexOf(matchingShape);
-        } else {
-            // If this is a new shape, use the count of existing locus shapes
-            this.locusOrdinal = existingLocusShapes.length;
-        }
+    constructor(name: string, description: string, point: Vector2d, locusOrdinal: number) {
+        super(name, description);
+        this.point = point;
+        this.locusOrdinal = locusOrdinal;
     }
 
     getActionType(): ActionType | null {
         return ActionType.Locus;
     }
 
-    getDescription(): string {
-        const point = (this.dbObject.properties as Partial<LocusProperties>)?.point ?? '?';
-        return `Plot {${point}}`;
+    getDefinedPoint(): Vector2d | null {
+        return this.point;
+    }
+
+    distanceToPoint(point: Vector2d): number {
+        return Math.sqrt(
+            Math.pow(point.x - this.point.x, 2) + Math.pow(point.y - this.point.y, 2)
+        );
     }
 
     getCanvasShape(canvasProperties: CanvasProperties, key?: string): React.ReactNode {
@@ -54,8 +42,39 @@ export class LocusShape extends BaseShape {
     }
 
     protected createClone(): Shape {
-        const clone = new LocusShape(this.dbObject, []);
-        clone.locusOrdinal = this.locusOrdinal;
-        return clone;
+        return new LocusShape(this.name, this.description, this.point, this.locusOrdinal);
+    }
+}
+
+export class LocusShapeCreator extends BaseShapeCreator {
+    objectType: ObjectType = ObjectType.Locus;
+
+    getDBObjectProperties(input: ShapeCreatorInput): ObjectProperties {
+        const shape = input.argumentValues[0]?.[0];
+        if (!(shape instanceof BaseShape) || shape.getDefinedPoint() == null) {
+            throw new Error('Invalid point value');
+        }
+        return { point: shape.name };
+    }
+
+    getArgumentValues(properties: ObjectProperties, shapes: Shape[]): ArgumentValue[] {
+        const locusProperties = properties as LocusProperties;
+        const point = getDefinedOrGridPoint(locusProperties.point, shapes);
+        if (point == null) {
+            throw new Error('Invalid point value');
+        }
+        return [[point]];
+    }
+
+    createShape(input: ShapeCreatorInput): Shape | null {
+        const points = getPointsFromInput(input);
+        if (points.length == 0) {
+            return null;
+        }
+        return new LocusShape(input.objectName, this.getDescription(input), points[0], input.locusOrdinal ?? 0);
+    }
+
+    protected getDescriptionInner(_input: ShapeCreatorInput, argumentStringValues: string[]): string {
+        return `Plot ${argumentStringValues[0]}`;
     }
 } 

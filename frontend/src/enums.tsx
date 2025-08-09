@@ -1,8 +1,4 @@
-import type { Vector2d } from 'konva/lib/types';
-import type { ObjectProperties, PartialDBObject, Shape } from './types';
-import { LineABShape } from './shapes/LineABShape';
-import { MidpointShape } from './shapes/MidpointShape';
-import { ScaledVectorPointShape } from './shapes/ScaledVectorPointShape';
+import type { Shape } from './types';
 
 export enum ObjectType {
     FixedPoint = 'FixedPoint',
@@ -102,47 +98,5 @@ export function getColor(shape: Shape) {
                 const exhaustiveCheck: never = shape.state;
                 throw new Error(`Unhandled color case: ${exhaustiveCheck}`);
             }
-    }
-}
-
-export function getPointDBProperties(objectType: ObjectType, lastPoint: Vector2d | string, currentActionStep: number): Partial<ObjectProperties> {
-    let value;
-    if (typeof lastPoint === 'string') {
-        value = lastPoint;
-    } else {
-        value = lastPoint.x + "," + lastPoint.y;
-    }
-    switch (objectType) {
-        case ObjectType.Midpoint:
-        case ObjectType.LineAB:
-        case ObjectType.PpBisector:
-        case ObjectType.TwoPointDistanceInvariant:
-            return currentActionStep === 0 ? { point1: value } : { point2: value };
-        case ObjectType.ScaledVectorPoint:
-            return currentActionStep === 1 ? { point1: value } : { point2: value };
-        case ObjectType.Locus:
-        case ObjectType.PointToLineDistanceInvariant:
-        case ObjectType.PpToLine:
-        case ObjectType.PlToLine:
-        case ObjectType.Projection:
-        case ObjectType.Reflection:
-            return { point: value };
-        case ObjectType.TwoLineAngleInvariant:
-            return currentActionStep === 0 ? { line1: value } : { line2: value };
-        default:
-            return { value: value };
-    }
-}
-
-export function getOccupiedPoints(dbObject: PartialDBObject): Vector2d[] {
-    switch (dbObject.object_type) {
-        case ObjectType.Midpoint:
-            return new MidpointShape(dbObject, []).points;
-        case ObjectType.ScaledVectorPoint:
-            return new ScaledVectorPointShape(dbObject, []).points;
-        case ObjectType.LineAB:
-            return new LineABShape(dbObject, []).points;
-        default:
-            return [];
     }
 }
