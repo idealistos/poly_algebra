@@ -1,7 +1,4 @@
-use regex::Regex;
-use serde_json::json;
 use serde_json::Value;
-use std::collections::HashSet;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::str::FromStr;
@@ -313,6 +310,7 @@ impl Display for ObjectType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_scene_object_conversion() {

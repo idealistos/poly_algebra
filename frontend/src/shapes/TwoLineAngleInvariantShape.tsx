@@ -92,7 +92,7 @@ export class TwoLineAngleInvariantShapeCreator extends BaseShapeCreator {
         }
     }
 
-    protected getDescriptionInner(input: ShapeCreatorInput, argumentStringValues: string[]): string {
+    protected getDescriptionInner(_input: ShapeCreatorInput, argumentStringValues: string[]): string {
         const line1Name = argumentStringValues[0] ?? '?';
         const line2Name = argumentStringValues[1] ?? '?';
         return `α(${line1Name}, ${line2Name}) = const`;

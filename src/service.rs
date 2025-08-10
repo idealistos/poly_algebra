@@ -2,7 +2,6 @@ use actix_web::{delete, get, patch, post, web, HttpResponse, Responder};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Utc};
 use log::info;
-use sea_orm::ActiveValue::NotSet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -12,7 +11,7 @@ use std::time::Instant;
 use crate::db::{SceneActiveModel, SceneColumn, SceneEntity, SCENE_DEFAULT_NAME};
 use crate::poly_draw::Color;
 use crate::scene::{Scene, SceneOptions, View};
-use crate::scene_object::{ObjectType, SceneError, SceneObject};
+use crate::scene_object::{ObjectType, SceneObject};
 use sea_orm::{
     ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, QueryOrder, Set,
 };

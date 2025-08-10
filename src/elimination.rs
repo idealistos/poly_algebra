@@ -2,7 +2,7 @@ use crate::modular_poly::ModularPoly;
 use crate::poly::{Poly, PolyOperations, VarSearchResult};
 use log::info;
 use rand::Rng;
-use std::{collections::HashMap, fmt, mem, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 #[derive(Debug, Clone)]
 struct EliminationStep {

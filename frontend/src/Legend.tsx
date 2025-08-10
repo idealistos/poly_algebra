@@ -1,4 +1,3 @@
-import React from 'react';
 import type { PlotData, Shape } from './types';
 import { PLOT_COLORS } from './utils';
 import { ObjectType } from './enums';

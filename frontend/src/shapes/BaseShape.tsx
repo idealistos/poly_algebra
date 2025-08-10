@@ -21,7 +21,7 @@ export abstract class BaseShape implements Shape {
     abstract getCoveredPoints(): { x: number; y: number }[];
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    matchesLastArgumentOf(objectType: ObjectType): boolean {
+    matchesLastArgumentOf(_objectType: ObjectType): boolean {
         // This method is only needed for disambiguation of the last argument of an action
         return false;
     }
@@ -91,7 +91,6 @@ export abstract class BaseShapeCreator implements ShapeCreator {
         };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     getDescription(input: ShapeCreatorInput): string {
         if (input.hintedObjectPoint != null) {
             return "";
@@ -101,7 +100,7 @@ export abstract class BaseShapeCreator implements ShapeCreator {
                 return "";
             } else if (arg[0] instanceof BaseShape) {
                 return arg[0].name;
-            } else { 
+            } else {
                 const point = arg[0] as Vector2d;
                 return `(${point.x}, ${point.y})`;
             }

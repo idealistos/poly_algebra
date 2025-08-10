@@ -5,8 +5,6 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
-use std::path::Path;
-use std::process::Command;
 
 use crate::db::SceneEntity;
 use crate::db::SceneObjectEntity;
@@ -225,67 +223,6 @@ impl Scene {
             .map(|(name, obj)| obj.to_python(name))
             .collect::<Vec<String>>()
             .join("\n")
-    }
-
-    fn to_equations(python_expressions: String) -> Result<(Vec<String>, Vec<Plot>), SceneError> {
-        let python_code = format!(
-            "from equation_processor import *\n{}\n\n# Print all equations\nfor eq in equations:\n    print(eq)\nprint()\n# Print all plots\nfor plot in plots:\n    print(plot)",
-            python_expressions
-        );
-        info!("Python code: {}", python_code);
-
-        let py_dir = Path::new("src/py");
-        let output = Command::new("python3")
-            .current_dir(py_dir)
-            .arg("-c")
-            .arg(python_code)
-            .output()
-            .map_err(|e| SceneError::DatabaseError(format!("Failed to run Python: {}", e)))?;
-        println!("output status: {:?}", output.status);
-        println!(
-            "output stdout:\n{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        if !output.stderr.is_empty() {
-            println!(
-                "output stderr:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        if !output.status.success() {
-            return Err(SceneError::DatabaseError(format!(
-                "Python execution failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        let mut lines = output_str.lines();
-
-        // Collect equations until we hit an empty line
-        let mut equations = Vec::new();
-        while let Some(line) = lines.next() {
-            if line.is_empty() {
-                break;
-            }
-            equations.push(line.to_string());
-        }
-
-        // Collect plots
-        let mut plots = Vec::new();
-        while let Some(line) = lines.next() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() == 3 {
-                plots.push(Plot {
-                    name: parts[0].to_string(),
-                    x: parts[1].to_string(),
-                    y: parts[2].to_string(),
-                });
-            }
-        }
-
-        Ok((equations, plots))
     }
 
     pub fn evaluate_initial_values(

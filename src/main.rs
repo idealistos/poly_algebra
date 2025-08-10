@@ -16,7 +16,6 @@ use clap::{Parser, Subcommand};
 use log::info;
 use sea_orm::{ActiveModelTrait, ConnectOptions, ConnectionTrait, Set};
 use sea_orm::{Database, DatabaseConnection, Statement};
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -24,7 +23,6 @@ use std::process::Command;
 use crate::db::SceneActiveModel;
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
-use env_logger::Env;
 
 // Global variable to store the Pari/GP executable path
 static mut PARI_EXECUTABLE_PATH: Option<String> = None;

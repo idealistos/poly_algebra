@@ -409,7 +409,6 @@ impl Poly {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::relative_eq;
 
     #[test]
     fn test_as_x_poly() {

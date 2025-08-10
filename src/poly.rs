@@ -648,7 +648,7 @@ impl Poly {
             (Poly::Constant(n1), Poly::Constant(n2)) => {
                 if *n1 == 0 && *n2 == 0 {
                     return true;
-                } else if ((*n1 == 0) != (*n2 == 0)) {
+                } else if (*n1 == 0) != (*n2 == 0) {
                     return false;
                 }
 

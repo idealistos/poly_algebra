@@ -105,7 +105,6 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{SceneEntity, SceneModel};
     use chrono::Utc;
     use sea_orm::ActiveValue::Set;
     use sea_orm::{ConnectionTrait, Database, DatabaseConnection, Schema};

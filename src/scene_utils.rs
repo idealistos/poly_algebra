@@ -575,8 +575,6 @@ impl SceneUtils {
     }
 
     fn reduce_using_projections(projections: Vec<Rc<Poly>>, uni_coeffs: Vec<i64>) -> Rc<Poly> {
-        let d = projections.len();
-
         // Get the matrices separately
         let mut i_matrix = Self::get_i_matrix(&uni_coeffs);
         let mut p_matrix = Self::get_p_matrix(&projections);
