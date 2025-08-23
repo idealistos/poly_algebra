@@ -89,7 +89,10 @@ impl AppState {
 
 #[get("/actions")]
 async fn get_actions() -> impl Responder {
-    let letters_a_to_k: Vec<String> = ('A'..='K').map(|c| c.to_string()).collect();
+    let letters_a_to_d: Vec<String> = ('A'..='D').map(|c| c.to_string()).collect();
+    let mut letters_m_to_n_then_e_to_k: Vec<String> = ('M'..='N').map(|c| c.to_string()).collect();
+    letters_m_to_n_then_e_to_k.extend(('E'..='K').map(|c| c.to_string()));
+    let letters_p_to_s: Vec<String> = ('P'..='S').map(|c| c.to_string()).collect();
     let mut letters_x_to_z_then_t_to_w: Vec<String> = ('X'..='Z').map(|c| c.to_string()).collect();
     letters_x_to_z_then_t_to_w.extend(('T'..='W').map(|c| c.to_string()));
 
@@ -109,7 +112,7 @@ async fn get_actions() -> impl Responder {
                 ],
             }],
             description: "Fixed point: a point with constant integer coordinates".to_string(),
-            allowed_names: letters_a_to_k,
+            allowed_names: letters_a_to_d,
             group: "Points".to_string(),
         },
         Action {
@@ -149,7 +152,7 @@ async fn get_actions() -> impl Responder {
                 },
             ],
             description: "Midpoint: the point halfway between two given points".to_string(),
-            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            allowed_names: letters_m_to_n_then_e_to_k.clone(),
             group: "Points".to_string(),
         },
         Action {
@@ -161,7 +164,7 @@ async fn get_actions() -> impl Responder {
                 exclusive_object_types: vec![ObjectType::IntersectionPoint.to_string()],
             }],
             description: "Intersection point: the point where two lines meet".to_string(),
-            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            allowed_names: letters_p_to_s.clone(),
             group: "Points".to_string(),
         },
         Action {
@@ -201,7 +204,7 @@ async fn get_actions() -> impl Responder {
             description:
                 "Projection: the point on a line that is the perpendicular projection of a given point onto the line"
                     .to_string(),
-            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            allowed_names: letters_p_to_s.clone(),
             group: "Points".to_string(),
         },
         Action {
@@ -224,7 +227,7 @@ async fn get_actions() -> impl Responder {
             description:
                 "Reflection: the point on the other side of a line that is the reflection of a given point across the line"
                     .to_string(),
-            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            allowed_names: letters_p_to_s.clone(),
             group: "Points".to_string(),
         },
         Action {
@@ -248,7 +251,7 @@ async fn get_actions() -> impl Responder {
                 },
             ],
             description: "Scaled vector point: a point X defined by the vector relation AX = k AB for chosen A and B".to_string(),
-            allowed_names: letters_x_to_z_then_t_to_w.clone(),
+            allowed_names: letters_m_to_n_then_e_to_k.clone(),
             group: "Points".to_string(),
         },        
         Action {
@@ -390,7 +393,7 @@ async fn get_actions() -> impl Responder {
             description:
                 "Distance Invariant: specifies that the distance from a point to another point or line is constant"
                     .to_string(),
-            allowed_names: ('A'..='K')
+            allowed_names: ('A'..='Z')
                 .map(|c| ("inv".to_string() + &c.to_string()))
                 .collect(),
             group: "Constraints".to_string(),
@@ -415,7 +418,7 @@ async fn get_actions() -> impl Responder {
             description:
                 "Angle Invariant: specifies that the angle between two lines is constant"
                     .to_string(),
-            allowed_names: ('A'..='K')
+            allowed_names: ('A'..='Z')
                 .map(|c| ("inv".to_string() + &c.to_string()))
                 .collect(),
             group: "Constraints".to_string(),
@@ -446,7 +449,7 @@ async fn get_actions() -> impl Responder {
             }],
             description: "Locus: pick a point to display the curve (all positions of that point satisfying the constraints)"
                 .to_string(),
-            allowed_names: ('A'..='K')
+            allowed_names: ('A'..='Z')
                 .map(|c| ("locus".to_string() + &c.to_string()))
                 .collect(),
             group: "Locus".to_string(),
